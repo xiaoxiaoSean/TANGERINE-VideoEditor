@@ -9,4 +9,9 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="FFmpeg.Static" Version="4.4.0.7" />
+    <Content Include="$(NuGetPackageRoot)ffmpeg.static/4.4.0.7/ffmpeg/**" Link="ffmpeg/%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
 </Project>

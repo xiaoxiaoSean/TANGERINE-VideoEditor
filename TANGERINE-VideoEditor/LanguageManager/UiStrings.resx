@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="ErrorTitle" xml:space="preserve">
+    <value>发生了一个错误</value>
+  </data>
+  <data name="StageCodeTip1" xml:space="preserve">
+    <value>发生了一个错误
+阶段码是:
+</value>
+  </data>
+  <data name="StageCodeTip2" xml:space="preserve">
+    <value>详情：
+</value>
+  </data>
+  <data name="ErrorPossibleCause" xml:space="preserve">
+    <value>可能原因：</value>
+  </data>
+  <data name="ErrorSuggestedAction" xml:space="preserve">
+    <value>建议操作：</value>
+  </data>
+  <data name="ErrorCauseGeneral" xml:space="preserve">
+    <value>操作遇到未预期的情况。</value>
+  </data>
+  <data name="ErrorActionGeneral" xml:space="preserve">
+    <value>请重试；若问题持续，请记录阶段码并联系支持人员。</value>
+  </data>
+  <data name="ErrorCauseIo" xml:space="preserve">
+    <value>文件可能被占用、磁盘空间不足，或存储设备不可用。</value>
+  </data>
+  <data name="ErrorActionIo" xml:space="preserve">
+    <value>请检查剩余空间和设备连接，关闭占用文件的程序后重试。</value>
+  </data>
+  <data name="Confirm" xml:space="preserve">
+    <value>确认</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>关闭</value>
+  </data>
+  <data name="ErrorCausePermission" xml:space="preserve">
+    <value>程序可能没有访问该文件或文件夹的权限。</value>
+  </data>
+  <data name="ErrorActionPermission" xml:space="preserve">
+    <value>请以管理员身份运行，或检查文件和文件夹的访问权限。</value>
+  </data>
+  <data name="ErrorCauseMissing" xml:space="preserve">
+    <value>找不到指定的文件或文件夹。</value>
+  </data>
+  <data name="ErrorActionMissing" xml:space="preserve">
+    <value>请检查路径是否正确，或者文件是否已被移动或删除。</value>
+  </data>
+  <data name="ErrorCauseMemory" xml:space="preserve">
+    <value>系统内存不足，无法完成操作。</value>
+  </data>
+  <data name="ErrorActionMemory" xml:space="preserve">
+    <value>请关闭其他程序释放内存，或减小项目规模后重试。</value>
+  </data>
+  <data name="ErrorCauseRender" xml:space="preserve">
+    <value>渲染或效果处理遇到问题，可能是媒体格式不支持或参数无效。</value>
+  </data>
+  <data name="ErrorActionRender" xml:space="preserve">
+    <value>请检查媒体文件格式、效果参数和关键帧设置。</value>
+  </data>
+  <data name="ErrorCauseTimeline" xml:space="preserve">
+    <value>时间线编辑操作遇到问题，可能是片段状态或轨道配置无效。</value>
+  </data>
+  <data name="ErrorActionTimeline" xml:space="preserve">
+    <value>请检查片段位置、轨道锁定状态和序列设置。</value>
+  </data>
+</root>

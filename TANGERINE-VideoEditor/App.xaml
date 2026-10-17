@@ -4,6 +4,109 @@
              xmlns:local="clr-namespace:TANGERINE_VideoEditor"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <!-- Apply the same contrast to ComboBoxes in the main workspace and
+             to dialogs created in code. The popup has its own visual tree,
+             so styling only the closed control leaves dropdown rows unreadable. -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#F6F7F9" />
+            <Setter Property="Background" Value="#292B31" />
+            <Setter Property="Padding" Value="9,6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemSurface" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemSurface" Property="Background" Value="#454A55" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemSurface" Property="Background" Value="#69503F" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#9196A0" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="#F6F7F9" />
+            <Setter Property="Background" Value="#292B31" />
+            <Setter Property="BorderBrush" Value="#626874" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="9,5" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="ControlSurface" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter x:Name="ContentSite" Grid.Column="0"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  VerticalAlignment="Center" IsHitTestVisible="False"
+                                                  Panel.ZIndex="1" />
+                                <TextBox x:Name="PART_EditableTextBox" Grid.Column="0"
+                                         Visibility="Hidden" BorderThickness="0"
+                                         Background="#292B31" Foreground="{TemplateBinding Foreground}"
+                                         CaretBrush="White" Padding="{TemplateBinding Padding}"
+                                         VerticalContentAlignment="Center" Panel.ZIndex="1" />
+                                <ToggleButton x:Name="DropButton" Grid.Column="0" Grid.ColumnSpan="2"
+                                              IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                              Background="Transparent" BorderThickness="0" Focusable="False">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Grid Background="Transparent">
+                                                <Path HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                      Margin="0,0,10,0" Fill="#F6F7F9"
+                                                      Data="M 0 0 L 8 0 L 4 5 Z" />
+                                            </Grid>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                            </Grid>
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom" AllowsTransparency="True" Focusable="False"
+                                   PopupAnimation="Slide">
+                                <Border Background="#25272D" BorderBrush="#626874" BorderThickness="1"
+                                        MinWidth="{Binding ActualWidth, ElementName=ControlSurface}">
+                                    <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                                  CanContentScroll="True">
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed" />
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="DropButton" Property="Grid.Column" Value="1" />
+                                <Setter TargetName="DropButton" Property="Grid.ColumnSpan" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ControlSurface" Property="BorderBrush" Value="#FF9957" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>
