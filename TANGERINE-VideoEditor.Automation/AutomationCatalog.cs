@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Tangerine.VideoEditor.Automation;
@@ -192,6 +192,12 @@ public static class AutomationCatalog
         C("audio_sync", "通过真实波形或时间码同步片段。", false, false, F("referenceClipId", S(), true), F("movingClipId", S(), true), F("method", E("Waveform", "Timecode"))),
         C("audio_settings_get", "读取片段或轨道的完整音频设置；clipId 和 trackId 二选一。", true, false, F("clipId", S()), F("trackId", S())),
         C("audio_settings_update", "编辑片段或轨道的增益、声像、通道、滤波、均衡、压缩、限制、降噪、回声和自动音乐闪避全部参数；clipId 和 trackId 二选一。", false, false, F("clipId", S()), F("trackId", S()), F("patch", R("audio"), true)),
+        C("audio_source_streams", "读取所选媒体的全部源音频流及当前索引；通过clip_update的sourceAudioStreamIndex切换。", false, false, F("clipId", S(), true)),
+        C("audio_detach", "从视频创建可独立编辑的音频片段，原视频停止发声，可撤销。", false, false, F("clipId", S(), true)),
+        C("audio_attach", "重新附着分离音频；音画必须对齐，保留音频处理参数。", false, false, F("clipId", S(), true)),
+        C("audio_normalize", "测量所选源音轨R128响度并应用目标LUFS与真峰值约束；支持变速曲线，静音会明确报错。", false, false, F("clipId", S(), true), F("targetLufs", N(-36, -5)), F("truePeakDb", N(-9, 0))),
+        C("video_stabilize", "分析运动并生成无损防抖派生素材，自动接入预览、导出及项目保存；enabled=false恢复原视频。", false, false, F("clipId", S(), true), F("enabled", B()), F("smoothing", I(1, 120)), F("shakiness", I(1, 10)), F("maxZoomPercent", N(0, 50))),
+        C("audio_meter_get", "读取实际监听混音的左右峰值、削波保持与播放状态。", true),
         C("audio_tempo", "分析片段真实音频的节奏和 BPM。", true, false, F("clipId", S(), true)),
         C("audio_remix", "根据 BPM 和目标时长生成可编辑音乐重混片段。", false, false, F("clipId", S(), true), F("targetDurationSeconds", N(.000001), true), F("bpm", N(.1), true)),
         C("multicam_list", "读取多机位组、同步方式、角度和源片段。", true),
@@ -203,7 +209,7 @@ public static class AutomationCatalog
         C("voiceover_stop", "停止录音、保存 WAV，并按需导入和插入当前时间线。", false, false, F("path", S(), true), F("insert", B())),
         C("voiceover_cancel", "取消当前录音。"),
         C("workspace_get", "读取当前工作区、时间线缩放和预览设置。", true),
-        C("workspace_set", "应用、保存、恢复或重置工作区；可编辑面板比例、缩放、预览、自动保存和自定义快捷键。shortcuts 中 null 删除指定自定义快捷键；restore 时不同时指定新参数。", false, false, F("action", E("apply", "save", "restore", "reset")), F("preset", E("editing", "color", "audio")), F("upperRatio", N(.15, .85)), F("libraryRatio", N(.15, .85)), F("zoom", N(.25, 4)), F("shortcuts", O(Nullable(S()))), F("patch", R("workspace"))),
+        C("workspace_set", "应用、保存、恢复或重置工作区；可编辑面板比例、缩放、预览、自动保存和自定义快捷键。shortcuts 中 null 删除指定自定义快捷键；restore 时不同时指定新参数。", false, false, F("action", E("apply", "save", "restore", "reset")), F("preset", E("editing", "color", "audio")), F("upperRatio", N(.15, .85)), F("libraryRatio", N(.15, .85)), F("zoom", N(.25, 4)), F("previewViewZoom", N(.1, 4)), F("mediaViewIndex", I(0, 2)), F("shortcuts", O(Nullable(S()))), F("patch", R("workspace"))),
         C("ui_list_commands", "列出软件可调用的已命名界面命令白名单。", true),
         C("ui_invoke", "执行 ui_list_commands 返回的已命名界面命令；仅调用白名单，不执行代码。需要输入的功能优先使用结构化专用工具。", false, false, F("command", S(), true)),
         C("system_association_get", "读取 .tvep 的默认打开方式和当前用户注册状态。", true),
@@ -233,18 +239,18 @@ public static class AutomationCatalog
             .Concat(Numbers("timeSeconds", "value", "bezierOutTime", "bezierOutValue", "bezierInTime", "bezierInValue")));
         models["remapPoint"] = Fields(Numbers("timeSeconds", "speed"));
         models["clip"] = Fields(Strings("id", "name", "blendMode", "frameInterpolation")
-            .Concat(NullableStrings("templateId", "mediaAssetId", "nestedSequenceId", "multicamGroupId", "multicamAngleId", "groupId", "linkGroupId", "color"))
+            .Concat(NullableStrings("templateId", "mediaAssetId", "nestedSequenceId", "multicamGroupId", "multicamAngleId", "groupId", "linkGroupId", "color", "detachedAudioClipId", "detachedVideoClipId"))
             .Concat(Numbers("multicamLocalStartSeconds", "startSeconds", "durationSeconds", "sourceInSeconds", "speed", "volume", "opacity"))
-            .Concat(Bools("speedAdjustmentApplied", "isMuted", "isReversed"))
-            .Concat([F("kind", E("Video", "Audio", "Image", "Text", "Color", "Adjustment", "Sequence")), F("mask", Nullable(R("mask"))), F("transform", R("transform")), F("text", Nullable(R("text"))), F("timeRemapPoints", A(R("remapPoint"))), F("effects", A(R("effect"))), F("transitions", A(R("transition"))), F("keyframes", A(R("keyframe")))]));
+            .Concat(Bools("speedAdjustmentApplied", "isMuted", "isReversed", "audioDetached"))
+            .Concat([F("sourceAudioStreamIndex", I(0, 63)), F("stabilization", R("stabilization")), F("kind", E("Video", "Audio", "Image", "Text", "Color", "Adjustment", "Sequence")), F("mask", Nullable(R("mask"))), F("transform", R("transform")), F("text", Nullable(R("text"))), F("timeRemapPoints", A(R("remapPoint"))), F("effects", A(R("effect"))), F("transitions", A(R("transition"))), F("keyframes", A(R("keyframe")))]));
         models["track"] = Fields(Strings("id", "name").Concat(Bools("isLocked", "isHidden", "isMuted", "isSyncLocked", "isSnapping"))
             .Concat([F("kind", E("Video", "Audio")), F("order", I(0)), F("clips", A(R("clip")))]));
         models["marker"] = Fields(Strings("id", "name", "notes", "color").Concat([F("timeSeconds", N(0))]));
         models["sequence"] = Fields(Strings("id", "name", "workingColorSpace", "outputColorSpace", "backgroundColor")
-            .Concat([F("width", I(16, 16384)), F("height", I(16, 16384)), F("framesPerSecond", N(.1, 240)), F("audioSampleRate", I(8000, 192000)), F("playheadSeconds", N(0)), F("workAreaStartSeconds", N(0)), F("workAreaEndSeconds", Nullable(N(0)))]));
+            .Concat([F("width", I(16, 16384)), F("height", I(16, 16384)), F("framesPerSecond", N(.1, 240)), F("audioSampleRate", I(8000, 192000)), F("magneticTimeline", B()), F("playheadSeconds", N(0)), F("workAreaStartSeconds", N(0)), F("workAreaEndSeconds", Nullable(N(0)))]));
         models["media"] = Fields(Strings("id", "name", "sourcePath", "labelColor", "description", "inputColorSpace")
             .Concat(NullableStrings("binId", "proxyPath", "videoCodec", "audioCodec", "fileModifiedUtc"))
-            .Concat([F("kind", E("Video", "Audio", "Image")), F("durationSeconds", Nullable(N(0))), F("width", Nullable(I(1))), F("height", Nullable(I(1))), F("framesPerSecond", Nullable(N(0))), F("hasAudio", B()), F("tags", IDs()), F("metadata", O(S())), F("sourceInSeconds", N(0)), F("sourceOutSeconds", Nullable(N(0))), F("markers", A(R("marker"))), F("useProxy", B()), F("audioChannels", Nullable(I(1))), F("audioSampleRate", Nullable(I(1))), F("fileSizeBytes", Nullable(I(0)))]));
+            .Concat([F("kind", E("Video", "Audio", "Image")), F("durationSeconds", Nullable(N(0))), F("width", Nullable(I(1))), F("height", Nullable(I(1))), F("framesPerSecond", Nullable(N(0))), F("hasAudio", B()), F("audioStreams", A(R("sourceAudioStream"))), F("tags", IDs()), F("metadata", O(S())), F("sourceInSeconds", N(0)), F("sourceOutSeconds", Nullable(N(0))), F("markers", A(R("marker"))), F("useProxy", B()), F("audioChannels", Nullable(I(1))), F("audioSampleRate", Nullable(I(1))), F("fileSizeBytes", Nullable(I(0)))]));
         models["bin"] = Fields([F("id", S()), F("name", S()), F("parentId", Nullable(S()))]);
         models["subclip"] = Fields(Strings("id", "name", "parentAssetId", "notes", "createdUtc")
             .Concat([F("inSeconds", N(0)), F("outSeconds", N(0)), F("tags", IDs())]));
@@ -253,10 +259,12 @@ public static class AutomationCatalog
         models["sequenceWorkspace"] = Fields([F("sequence", R("sequence")), F("tracks", A(R("track"))), F("markers", A(R("marker")))]);
         models["project"] = Fields(Strings("format", "id", "name", "createdUtc", "modifiedUtc")
             .Concat([F("version", I(1)), F("sequence", R("sequence")), F("sequences", A(R("sequenceWorkspace"))), F("bins", A(R("bin"))), F("media", A(R("media"))), F("subclips", A(R("subclip"))), F("multicamGroups", A(R("multicam"))), F("tracks", A(R("track"))), F("markers", A(R("marker")))]));
-        models["exportSettings"] = Fields([F("width", Nullable(I(16, 16384))), F("height", Nullable(I(16, 16384))), F("framesPerSecond", Nullable(N(.1, 240))), F("videoBitrateKbps", Nullable(I(1))), F("startSeconds", N(0)), F("endSeconds", Nullable(N(0)))]);
+        models["exportSettings"] = Fields([F("width", Nullable(I(16, 16384))), F("height", Nullable(I(16, 16384))), F("framesPerSecond", Nullable(N(.1, 240))), F("videoBitrateKbps", Nullable(I(1))), F("startSeconds", N(0)), F("endSeconds", Nullable(N(0))), F("videoCodec", E("H264", "HEVC", "AV1")), F("bitDepth", new JsonObject { ["type"] = "integer", ["enum"] = new JsonArray(8, 10) })]);
         models["analysisSettings"] = Fields([F("startSeconds", N(0)), F("durationSeconds", N(.000001, 600)), F("bins", I(8, 2000)), F("threshold", N(.01, 1))]);
-        models["workspace"] = Fields([F("upperRatio", N(.15, .85)), F("libraryRatio", N(.15, .85)), F("zoom", N(.25, 4)), F("shortcuts", O(Nullable(S()))), F("snap", B()), F("gpuMode", E("自动（GPU 优先）", "CPU 软件渲染", "NVIDIA CUDA", "Intel QSV", "AMD AMF")), F("autoSave", B()), F("previewQualityIndex", I(0, 2)), F("categoryIndex", I(0, 5)), F("globalMute", B()), F("soloTrackId", Nullable(S()))]);
-        models["audio"] = Fields([F("category", E("未分类", "对白", "音乐", "音效", "环境声")), F("gain", N(0, 4)), F("pan", N(-1, 1)), F("channelMode", E("立体声", "单声道", "仅左声道", "仅右声道")), F("highPassHz", N(0, 20000)), F("lowPassHz", N(0, 20000)), F("equalizerHz", N(0, 20000)), F("equalizerGainDb", N(-24, 24)), F("compressorEnabled", B()), F("compressorThresholdDb", N(-60, 0)), F("compressorRatio", N(1, 20)), F("limiterEnabled", B()), F("limiterCeiling", N(.05, 1)), F("noiseReductionEnabled", B()), F("noiseReductionDb", N(0, 40)), F("echoEnabled", B()), F("echoDelayMs", N(1, 2000)), F("echoDecay", N(0, .9)), F("autoDuckingEnabled", B()), F("duckingGain", N(.05, 1)), F("duckingFadeSeconds", N(0, 2))]);
+        models["workspace"] = Fields([F("upperRatio", N(.15, .85)), F("libraryRatio", N(.15, .85)), F("zoom", N(.25, 4)), F("previewViewZoom", N(.1, 4)), F("mediaViewIndex", I(0, 2)), F("shortcuts", O(Nullable(S()))), F("snap", B()), F("gpuMode", E("自动（GPU 优先）", "CPU 软件渲染", "NVIDIA CUDA", "Intel QSV", "AMD AMF")), F("autoSave", B()), F("previewQualityIndex", I(0, 2)), F("categoryIndex", I(0, 4)), F("globalMute", B()), F("soloTrackId", Nullable(S()))]);
+        models["sourceAudioStream"] = Fields([F("index", I(0)), F("streamIndex", I(0)), F("codec", S()), F("channels", I(0)), F("sampleRate", I(0)), F("language", S()), F("title", S())]);
+        models["stabilization"] = Fields([F("enabled", B()), F("smoothing", I(1, 120)), F("shakiness", I(1, 10)), F("maxZoomPercent", N(0, 50)), F("originalAssetId", Nullable(S())), F("originalSourceIn", N(0))]);
+        models["audio"] = Fields([F("normalizeEnabled", B()), F("targetLufs", N(-36, -5)), F("targetTruePeakDb", N(-9, 0)), F("measuredLufs", Nullable(N())), F("measuredTruePeakDb", Nullable(N())), F("normalizationGainDb", N(-60, 60)),F("category", E("未分类", "对白", "音乐", "音效", "环境声")), F("gain", N(0, 4)), F("pan", N(-1, 1)), F("channelMode", E("立体声", "单声道", "仅左声道", "仅右声道")), F("highPassHz", N(0, 20000)), F("lowPassHz", N(0, 20000)), F("equalizerHz", N(0, 20000)), F("equalizerGainDb", N(-24, 24)), F("compressorEnabled", B()), F("compressorThresholdDb", N(-60, 0)), F("compressorRatio", N(1, 20)), F("limiterEnabled", B()), F("limiterCeiling", N(.05, 1)), F("noiseReductionEnabled", B()), F("noiseReductionDb", N(0, 40)), F("echoEnabled", B()), F("echoDelayMs", N(1, 2000)), F("echoDecay", N(0, .9)), F("autoDuckingEnabled", B()), F("duckingGain", N(.05, 1)), F("duckingFadeSeconds", N(0, 2))]);
         models["timeRange"] = Fields([F("startSeconds", N(0), true), F("endSeconds", N(0), true)]);
         return models;
     }

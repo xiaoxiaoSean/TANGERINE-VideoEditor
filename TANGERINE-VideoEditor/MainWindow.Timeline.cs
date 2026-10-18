@@ -56,6 +56,7 @@ public partial class MainWindow
     private Rectangle? _playheadGrip;
     private Line? _playheadVisualLine;
     private TimelineTrack? _draggingTrack;
+    private bool _trackDragFromLane;
     private Point _trackDragOrigin;
     private bool _trackDragStarted;
     // While a track header is dragged, the track itself is hidden but still
@@ -92,6 +93,7 @@ public partial class MainWindow
 
     private void InitializeTimeline()
     {
+        InitializeMagneticTimeline();
         // Keep trimming while the pointer rests at either visible edge.
         _clipEdgeScrollTimer.Tick += (_, _) =>
         {
@@ -111,6 +113,7 @@ public partial class MainWindow
             if (args.HorizontalChange != 0 || args.VerticalChange != 0) DrawTimeline();
         };
         TimelineCanvas.SizeChanged += (_, _) => DrawTimeline();
+        TimelineCanvas.DragLeave += (_, _) => RemoveDropGhost();
         TimelineCanvas.MouseLeftButtonDown += TimelineCanvas_MouseLeftButtonDown;
         TimelineCanvas.PreviewMouseRightButtonDown += (_, args) =>
         {
@@ -266,6 +269,7 @@ public partial class MainWindow
     private void RefreshTimeline()
     {
         if (TimelineCanvas is null || TimelineScrollViewer is null) return;
+        MagneticButton.Content = _project.Sequence.MagneticTimeline ? "磁性：开" : "磁性：关";
         double end = Math.Max(60, _project.Tracks.SelectMany(track => track.Clips)
             .Select(clip => clip.StartSeconds + clip.DurationSeconds).DefaultIfEmpty(0).Max() + 20);
         TimelineCanvas.Width = Math.Max(0, Math.Max(TimelineScrollViewer.ViewportWidth, HeaderSpace + end * PixelsPerSecond));
@@ -534,7 +538,23 @@ public partial class MainWindow
 
     private void TimelineCanvas_TrackPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs args)
     {
-        if (FindTrackHeader(args.OriginalSource as DependencyObject)?.Tag is not TimelineTrack track) return;
+        TimelineTrack? track = FindTrackHeader(args.OriginalSource as DependencyObject)?.Tag as TimelineTrack;
+        _trackDragFromLane = track is null;
+        if (track is null)
+        {
+            if (!ReferenceEquals(args.OriginalSource, TimelineCanvas)) return;
+            Point point = args.GetPosition(TimelineCanvas);
+            // Shift preserves rectangle selection; an unmodified empty lane drag reorders its track.
+            if (Keyboard.Modifiers != ModifierKeys.None ||
+                Math.Abs(point.X - (HeaderSpace + _project.Sequence.PlayheadSeconds * PixelsPerSecond)) <= RulerSpace * .2 || point.X < HeaderSpace || point.Y < RulerSpace ||
+                FindClipBorder(args.OriginalSource as DependencyObject) is not null ||
+                FindTrimHandle(args.OriginalSource as DependencyObject) is not null ||
+                IsTransitionMarker(args.OriginalSource as DependencyObject)) return;
+            int index = (int)((point.Y - RulerSpace) / TrackSpace);
+            if (index < 0 || index >= _project.Tracks.Count) return;
+            track = _project.Tracks[index];
+        }
+        if (track.IsLocked) return;
         if (_scrubbingPlayhead || _movingClip || _trimmingStart || _trimmingEnd ||
             _rubberBandDrag is not null || _bezierHandleDrag is not null) return;
         _selectedTrack = track;
@@ -597,6 +617,7 @@ public partial class MainWindow
         border.Width = width;
         border.Height = TrackSpace - 13;
         TimelineCanvas.Children.Add(border);
+        AddTimelineThumbnails(border, clip);
         DrawClipWaveform(clip, x, trackY + 10, width);
         // Edge handles participate in the same canvas pointer gesture as the
         // clip body. Their tags keep the gesture target stable during redraw.
@@ -654,22 +675,8 @@ public partial class MainWindow
         if (clip.Kind is not (ClipKind.Video or ClipKind.Audio) || width < 24) return;
         MediaAsset? asset = clip.MediaAssetId is null ? null :
             _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
-        if (clip.Kind == ClipKind.Video && asset?.HasAudio != true) return;
-        int samples = Math.Clamp((int)(width / 10), 8, 120);
-        double center = top + (TrackSpace - 24) * .46;
-        var random = new Random(StringComparer.Ordinal.GetHashCode(clip.Id));
-        for (int index = 0; index < samples; index++)
-        {
-            double px = left + 5 + (width - 10) * index / Math.Max(1, samples - 1);
-            double amplitude = (TrackSpace - 27) * (.16 + random.NextDouble() * .27);
-            var line = new Line
-            {
-                X1 = px, X2 = px, Y1 = center - amplitude, Y2 = center + amplitude,
-                Stroke = Brush("#A7D8D2"), StrokeThickness = 1,
-                IsHitTestVisible = false, Opacity = .8
-            };
-            TimelineCanvas.Children.Add(line);
-        }
+        if (clip.AudioDetached || clip.Kind == ClipKind.Video && asset?.HasAudio != true) return;
+        if (asset is not null) DrawRealWaveform(clip, asset, left, top, width);
     }
 
     private void AddTrimHandle(TimelineTrack track, TimelineClip clip, double x, double y, bool atStart)
@@ -693,6 +700,8 @@ public partial class MainWindow
         TimelineClip? prior, ClipTransition transition, double duration, double x, double y)
     {
         var menu = new ContextMenu { Background = Brush("#24262C"), Foreground = Brushes.White };
+        if (prior is not null)
+            menu.Items.Add(new MenuItem { Header = TransitionHandles.Describe(prior, _project.Media.FirstOrDefault(m => m.Id == prior.MediaAssetId), duration), IsEnabled = false });
         AddContextCommand(menu, "删除转场", () => RemoveBoundaryTransition(track, incoming, prior, transition));
         AddContextCommand(menu, "编辑转场参数…", () => EditBoundaryTransition(track, incoming, prior, transition));
         bool selected = ReferenceEquals(_selectedTransition, transition);
@@ -1495,8 +1504,10 @@ public partial class MainWindow
                 Background = Brush("#D925252D"), BorderBrush = Brush("#FF9957"),
                 BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(3),
                 IsHitTestVisible = false, Opacity = .9 };
-            TimelineCanvas.Children.Add(_dropGhost);
         }
+        // A timeline redraw can detach the ghost while the native drag loop
+        // continues. Reattach only the current gesture's transient visual.
+        if (!TimelineCanvas.Children.Contains(_dropGhost)) TimelineCanvas.Children.Add(_dropGhost);
         string prefix = item.Source is MediaAsset ? "▣" : "✦";
         _dropGhost.Child = new TextBlock { Text = $"{prefix} {item.Name}", Foreground = Brushes.White,
             FontWeight = FontWeights.SemiBold };
@@ -2011,8 +2022,19 @@ public partial class MainWindow
 
     private void SplitSelectedClip()
     {
-        if (_selectedClip is null || _selectedTrack is null) return;
-        if (_selectedTrack.IsLocked) { StatusText.Text = "轨道已锁定"; return; }
+        // A single toolbar click also resolves the clip beneath the playhead.
+        if (_selectedClip is null || _project.Sequence.PlayheadSeconds <= _selectedClip.StartSeconds ||
+            _project.Sequence.PlayheadSeconds >= _selectedClip.StartSeconds + _selectedClip.DurationSeconds)
+        {
+            var hit = _project.Tracks.Where(track => !track.IsLocked)
+                .OrderBy(track => ReferenceEquals(track, _selectedTrack) ? 0 : 1)
+                .SelectMany(track => track.Clips.Select(clip => (track, clip)))
+                .FirstOrDefault(item => _project.Sequence.PlayheadSeconds > item.clip.StartSeconds &&
+                    _project.Sequence.PlayheadSeconds < item.clip.StartSeconds + item.clip.DurationSeconds);
+            if (hit.clip is null) { StatusText.Text = "播放头处没有可分割片段"; return; }
+            _selectedTrack = hit.track; _selectedClip = hit.clip;
+        }
+        if (_selectedTrack is null || _selectedTrack.IsLocked) { StatusText.Text = "轨道已锁定"; return; }
         double split = SnapTime(_project.Sequence.PlayheadSeconds);
         double frame = 1 / Math.Max(1, _project.Sequence.FramesPerSecond);
         if (split + .000001 < _selectedClip.StartSeconds + frame ||
@@ -2522,7 +2544,11 @@ public partial class MainWindow
         HideTrackDragBlock();
         if (TimelineCanvas.IsMouseCaptured) TimelineCanvas.ReleaseMouseCapture();
         if (dragged is null) return;
-        if (!moved) { StatusText.Text = $"已选择轨道：{dragged.Name}"; return; }
+        if (!moved)
+        {
+            if (_trackDragFromLane) SeekPreview(Math.Max(0, (dropPoint.X - HeaderSpace) / PixelsPerSecond));
+            StatusText.Text = $"已选择轨道：{dragged.Name}"; return;
+        }
         // Commit to the slot the gap was showing. Falling back to the pointer
         // keeps the drop sane if prediction never ran.
         int targetIndex = predicted >= 0

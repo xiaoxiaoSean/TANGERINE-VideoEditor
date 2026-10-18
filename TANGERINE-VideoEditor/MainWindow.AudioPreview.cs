@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Windows.Media;
 using TANGERINE_VideoEditor.Editor;
@@ -40,6 +40,7 @@ public partial class MainWindow
 
     private void InitializeAudioPreview()
     {
+        InitializePlaybackMeters();
         _timelineAudioPlayer.MediaOpened += (_, _) =>
         {
             if (_timelineAudioFile is null || !_timelineAudioHasSound) return;
@@ -313,6 +314,8 @@ public partial class MainWindow
         _timelineAudioPlayerOpened = false;
         _timelineAudioFile = path;
         _timelineAudioStart = startSeconds;
+        if (path is not null && hasAudio) _ = LoadPlaybackMeterAsync(path, startSeconds);
+        else { _meterSamples = []; _meterPath = null; }
         _timelineAudioEnd = startSeconds + MonitorWindowSeconds;
         _timelineAudioRevision = MonitorRevision;
         _timelineAudioGeneration = _projectGeneration;

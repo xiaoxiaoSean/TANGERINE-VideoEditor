@@ -15,7 +15,7 @@ namespace TANGERINE_VideoEditor.Editor;
 public static class CompositeFrameRenderer
 {
     private sealed record Layer(TimelineClip Clip, MediaAsset? Asset, int Input,
-        bool HeldPrior, double SampleTime);
+        bool HeldPrior, double SampleTime, bool MovingTail);
 
     public static async Task<BitmapSource> RenderFrameAsync(ProjectDocument project, double timelineSeconds,
         int previewWidth, int previewHeight, CancellationToken cancellationToken = default,
@@ -113,10 +113,11 @@ public static class CompositeFrameRenderer
             if (sequenceWidth < 1 || sequenceHeight < 1 ||
                 sequenceWidth > 8192 || sequenceHeight > 8192)
                 throw new ClipFrameException(ClipFrameStageCode.Validate, "序列画幅无效。");
-            // Render at preview resolution and map sequence-pixel positions to
-            // that canvas. Still exports request the original sequence size.
-            int canvasWidth = width;
-            int canvasHeight = height;
+            // Compose at sequence resolution before the final high-quality downsample.
+            // Fitting each layer to the monitor first loses detail when a clip
+            // is enlarged, and gives effects different pixel units from export.
+            int canvasWidth = Math.Max(sequenceWidth, width);
+            int canvasHeight = Math.Max(sequenceHeight, height);
             double positionScaleX = canvasWidth / (double)sequenceWidth;
             double positionScaleY = canvasHeight / (double)sequenceHeight;
             arguments.AddRange(["-f", "lavfi", "-i",
@@ -148,12 +149,15 @@ public static class CompositeFrameRenderer
                 MediaAsset? asset = project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
                 bool heldPrior = heldPriorIds.Contains(clip.Id) &&
                     time >= clip.StartSeconds + clip.DurationSeconds;
-                double sampleTime = heldPrior
+                bool movingTail = heldPrior && TransitionRenderPlan.HeldBoundary(track, clip, project.Sequence.FramesPerSecond) is { } boundary &&
+                    BoundaryCrossfade.TryGetPrior(track, track.Clips.First(c => c.StartSeconds == boundary.Start), project.Sequence.FramesPerSecond, out _, out double tail) &&
+                    TransitionHandles.CanMove(clip, asset, tail);
+                double sampleTime = heldPrior && !movingTail
                     ? clip.StartSeconds + clip.DurationSeconds - 1 / project.Sequence.FramesPerSecond
                     : time;
                 if (clip.Kind == ClipKind.Adjustment)
                 {
-                    layers.Add(new Layer(clip, null, -1, false, time));
+                    layers.Add(new Layer(clip, null, -1, false, time, false));
                     continue;
                 }
                 if (clip.Kind == ClipKind.Color)
@@ -175,12 +179,12 @@ public static class CompositeFrameRenderer
                     if (clip.Kind == ClipKind.Video)
                     {
                         arguments.Add("-ss");
-                        arguments.Add(VisualEffectPipeline.Number(ClipTimeMap.SourceTime(clip, sampleTime)));
+                        arguments.Add(VisualEffectPipeline.Number(movingTail ? TransitionHandles.Sample(clip, time) : ClipTimeMap.SourceTime(clip, sampleTime)));
                     }
                     else arguments.AddRange(["-loop", "1", "-framerate", "1"]);
                     arguments.AddRange(["-i", path]);
                 }
-                layers.Add(new Layer(clip, asset, input++, heldPrior, sampleTime));
+                layers.Add(new Layer(clip, asset, input++, heldPrior, sampleTime, movingTail));
             }
             var graph = new StringBuilder("[0:v]format=rgba[base0];\n");
             string current = "base0";
@@ -206,7 +210,7 @@ public static class CompositeFrameRenderer
                     continue;
                 }
                 string filters = clip.Kind is (ClipKind.Color or ClipKind.Text) ? $"scale={canvasWidth}:{canvasHeight}" :
-                    $"scale={canvasWidth}:{canvasHeight}:force_original_aspect_ratio=decrease";
+                    $"scale={canvasWidth}:{canvasHeight}:force_original_aspect_ratio=decrease:flags=lanczos";
                 filters += ",format=rgba" + VisualEffectPipeline.BuildInputColorConversion(layer.Asset, project.Sequence) +
                     VisualEffectPipeline.BuildFfmpegFilters(clip, project.Sequence, localSeconds) + ",format=rgba";
                 if (clip.Mask is not null) filters += VisualEffectPipeline.BuildMaskAlpha(clip.Mask, clip, localSeconds);
@@ -236,7 +240,7 @@ public static class CompositeFrameRenderer
                 double pivotDeltaX = (.5 - anchorX) * croppedWidth * Math.Clamp(sx, .05, 8);
                 double pivotDeltaY = (.5 - anchorY) * croppedHeight * Math.Clamp(sy, .05, 8);
                 filters += $",scale=w='max(1,iw*{VisualEffectPipeline.Number(Math.Clamp(sx, .05, 8))})'" +
-                    $":h='max(1,ih*{VisualEffectPipeline.Number(Math.Clamp(sy, .05, 8))})'";
+                    $":h='max(1,ih*{VisualEffectPipeline.Number(Math.Clamp(sy, .05, 8))})':flags=lanczos";
                 double rotation = ClipAnimation.Evaluate(clip, "RotationDegrees", sampleTime) * Math.PI / 180;
                 double opacity = Math.Clamp(ClipAnimation.Evaluate(clip, "Opacity", sampleTime), 0, 1);
                 TimelineTrack transitionTrack = project.Tracks.First(track => track.Clips.Contains(clip));
@@ -283,7 +287,7 @@ public static class CompositeFrameRenderer
             }
             string outputConversion = VisualEffectPipeline.BuildOutputColorConversion(project.Sequence);
             graph.AppendLine($"[{current}]{(outputConversion.Length == 0 ? "null" : outputConversion.TrimStart(','))}," +
-                $"scale={width}:{height}:flags=bilinear,format=rgba[output]");
+                $"scale={width}:{height}:flags=lanczos,format=rgba[output]");
             // Keep the PNG pipe format used by still-frame export so its
             // transparency and WPF decode path remain identical.
             arguments.AddRange(["-filter_complex", graph.ToString(), "-map", "[output]",

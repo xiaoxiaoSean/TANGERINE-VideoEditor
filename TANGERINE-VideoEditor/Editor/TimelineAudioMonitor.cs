@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -34,7 +34,7 @@ public static class TimelineAudioMonitor
             (track.Kind == TrackKind.Audio || !track.IsHidden)))
         {
             foreach (TimelineClip clip in track.Clips.Where(clip =>
-                (clip.Kind is ClipKind.Audio or ClipKind.Video) && !clip.IsMuted))
+                (clip.Kind is ClipKind.Audio or ClipKind.Video) && !clip.IsMuted && !clip.AudioDetached))
             {
                 if (!double.IsFinite(clip.StartSeconds) || clip.StartSeconds < 0 ||
                     !double.IsFinite(clip.DurationSeconds) || clip.DurationSeconds <= 0 ||
@@ -186,7 +186,7 @@ public static class TimelineAudioMonitor
         string prefix = $"m{source.InputIndex}";
         var pieces = new List<string>();
         if (boundaries.Count > 2)
-            graph.AppendLine($"[{source.InputIndex}:a]asplit={boundaries.Count - 1}" +
+            graph.AppendLine($"[{source.InputIndex}:a:{clip.SourceAudioStreamIndex}]asplit={boundaries.Count - 1}" +
                 string.Concat(Enumerable.Range(0, boundaries.Count - 1).Select(index => $"[{prefix}in{index}]")) + ";");
         for (int index = 0; index < boundaries.Count - 1; index++)
         {
@@ -201,7 +201,7 @@ public static class TimelineAudioMonitor
                 sourceStart < 0 || sourceSpan <= 0)
                 throw new AudioOperationException(AudioStageCode.Validate,
                     $"音频片段“{clip.Name}”的源范围无效。");
-            string input = boundaries.Count > 2 ? $"{prefix}in{index}" : $"{source.InputIndex}:a";
+            string input = boundaries.Count > 2 ? $"{prefix}in{index}" : $"{source.InputIndex}:a:{clip.SourceAudioStreamIndex}";
             string label = $"{prefix}piece{index}";
             string chain = $"atrim=start={number(sourceStart)}:duration={number(sourceSpan)}" +
                 (clip.IsReversed ? ",areverse" : string.Empty) +

@@ -1,9 +1,25 @@
-<Window x:Class="TANGERINE_VideoEditor.MainWindow"
+﻿<Window x:Class="TANGERINE_VideoEditor.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:TANGERINE_VideoEditor"
         Title="TANGERINE · 视频剪辑" WindowState="Maximized"
         Background="#101114" Foreground="White" FontFamily="Microsoft YaHei UI" FontSize="13">
     <Window.Resources>
+        <local:ProportionalSizeConverter x:Key="ProportionalSize" />
+        <DataTemplate x:Key="CatalogListTemplate">
+            <StackPanel><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Description}" TextWrapping="Wrap" Foreground="#9B9EA7" FontSize="11" /></StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="MediaListTemplate">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="24*" /><ColumnDefinition Width="76*" /></Grid.ColumnDefinitions>
+                <Image Source="{Binding Thumbnail}" Stretch="Uniform" IsHitTestVisible="False" />
+                <StackPanel Grid.Column="1" Margin="8,0,0,0"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Description}" TextWrapping="Wrap" Foreground="#9B9EA7" FontSize="11" /></StackPanel>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="MediaThumbnailTemplate">
+            <StackPanel><Image Source="{Binding Thumbnail}" Stretch="Uniform" Height="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ListBoxItem}, Converter={StaticResource ProportionalSize}, ConverterParameter=0.5625}" IsHitTestVisible="False" />
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Description}" TextTrimming="CharacterEllipsis" Foreground="#9B9EA7" FontSize="11" />
+            </StackPanel>
+        </DataTemplate>
         <SolidColorBrush x:Key="Panel" Color="#191B20" />
         <SolidColorBrush x:Key="Surface" Color="#24262C" />
         <SolidColorBrush x:Key="Line" Color="#34363D" />
@@ -186,15 +202,16 @@
         </Border>
         <Grid x:Name="EditorAreaGrid" Grid.Row="2">
             <Grid.RowDefinitions>
-                <RowDefinition x:Name="UpperWorkspaceRow" Height="56*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition x:Name="TimelineWorkspaceRow" Height="44*" />
+                <RowDefinition x:Name="UpperWorkspaceRow" Height="56*" MinHeight="{Binding ActualHeight, ElementName=EditorAreaGrid, Converter={StaticResource ProportionalSize}, ConverterParameter=0.15}" />
+                <RowDefinition Height="1*" />
+                <RowDefinition x:Name="TimelineWorkspaceRow" Height="44*" MinHeight="{Binding ActualHeight, ElementName=EditorAreaGrid, Converter={StaticResource ProportionalSize}, ConverterParameter=0.15}" />
             </Grid.RowDefinitions>
             <!-- Object library and player share the upper work area. -->
             <Grid x:Name="UpperWorkspaceGrid" Grid.Row="0" Margin="8,8,8,4">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="LibraryWorkspaceColumn" Width="44*" />
-                    <ColumnDefinition x:Name="PreviewWorkspaceColumn" Width="56*" />
+                    <ColumnDefinition x:Name="LibraryWorkspaceColumn" Width="44*" MinWidth="{Binding ActualWidth, ElementName=UpperWorkspaceGrid, Converter={StaticResource ProportionalSize}, ConverterParameter=0.15}" />
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition x:Name="PreviewWorkspaceColumn" Width="56*" MinWidth="{Binding ActualWidth, ElementName=UpperWorkspaceGrid, Converter={StaticResource ProportionalSize}, ConverterParameter=0.15}" />
                 </Grid.ColumnDefinitions>
                 <Border Grid.Column="0" Background="{StaticResource Panel}" CornerRadius="7" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="0,0,4,0">
                     <Grid x:Name="LibraryDropSurface" AllowDrop="True">
@@ -209,9 +226,13 @@
                                 </StackPanel>
                                 <Button x:Name="LibraryAddButton" Content="＋ 添加" DockPanel.Dock="Right" HorizontalAlignment="Right" Style="{StaticResource ToolButton}" />
                             </DockPanel>
-                            <TextBox x:Name="AssetSearchBox" Grid.Row="1" Margin="0,0,0,10" ToolTip="搜索媒体、文字、特效和转场" />
+                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="70*" /><ColumnDefinition Width="30*" /></Grid.ColumnDefinitions>
+                                <TextBox x:Name="AssetSearchBox" ToolTip="搜索媒体、文字、效果和转场" />
+                                <ComboBox x:Name="MediaViewBox" Grid.Column="1" Margin="5,0,0,0" ToolTip="媒体显示方式" />
+                            </Grid>
                             <Grid Grid.Row="2">
-                                <ListBox x:Name="AssetList" ItemContainerStyle="{StaticResource AssetItem}" />
+                                <ListBox x:Name="AssetList" ItemContainerStyle="{StaticResource AssetItem}" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
                                 <TextBlock x:Name="EmptyLibraryMessage" Text="从上方添加媒体，或从左侧选择内置素材" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" IsHitTestVisible="False" />
                             </Grid>
                         </Grid>
@@ -219,9 +240,10 @@
                                         Visibility="Collapsed" Panel.ZIndex="5" />
                     </Grid>
                 </Border>
+                <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="#34363D" ShowsPreview="True" ToolTip="拖动调整媒体区与预览区比例" />
                 <Border Grid.Column="2" Background="{StaticResource Panel}" CornerRadius="7" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="4,0,0,0">
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <DockPanel Grid.Row="0" Margin="15,10" LastChildFill="False">
                             <TextBlock Text="预览器" FontSize="15" FontWeight="SemiBold" DockPanel.Dock="Left" />
                             <ComboBox x:Name="PreviewQualityBox" DockPanel.Dock="Right"
@@ -232,14 +254,16 @@
                                       Margin="0,0,8,0" MinWidth="80" />
                             <Button x:Name="PreviewCropButton" Content="裁切" DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Margin="0,0,8,0" ToolTip="选择图片或视频后，拖动青色控制点裁切四边" />
                         </DockPanel>
-                        <Border Grid.Row="1" Background="#070809" Margin="15,0" CornerRadius="4" ClipToBounds="True">
+                        <Border x:Name="PreviewViewport" Grid.Row="1" Background="#070809" Margin="15,0" CornerRadius="4" ClipToBounds="True">
                             <Grid>
+                                <Grid x:Name="PreviewStage" RenderTransformOrigin="0.5,0.5">
                                 <Canvas x:Name="PreviewVisualLayer" HorizontalAlignment="Center" VerticalAlignment="Center" ClipToBounds="True" IsHitTestVisible="False">
                                     <MediaElement x:Name="PreviewMediaElement" LoadedBehavior="Manual" UnloadedBehavior="Manual" Stretch="Fill" Visibility="Collapsed" />
                                     <Image x:Name="PreviewImage" Stretch="Fill" Visibility="Collapsed" />
                                     <Image x:Name="PreviewRenderedFrame" Stretch="Fill" Visibility="Collapsed" IsHitTestVisible="False" />
                                 </Canvas>
                                 <Canvas x:Name="PreviewOverlay" Background="Transparent" ClipToBounds="True" />
+                                </Grid>
                                 <StackPanel x:Name="PreviewPlaceholder" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
                                     <TextBlock Text="▶" Foreground="#444850" FontSize="46" HorizontalAlignment="Center" />
                                     <TextBlock x:Name="PreviewMessage" Text="预览将在这里显示" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,7,0,0" />
@@ -260,7 +284,13 @@
                                 </Border>
                             </Grid>
                         </Border>
-                        <Grid Grid.Row="2" Margin="15,7,15,11">
+                        <Grid Grid.Row="2" Margin="15,5">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="18*" /><ColumnDefinition Width="64*" /><ColumnDefinition Width="18*" /></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="PreviewZoomText" Text="视图 100%" VerticalAlignment="Center" />
+                            <Slider x:Name="PreviewZoomSlider" Grid.Column="1" Minimum="0.1" Maximum="4" Value="1" SmallChange="0.1" LargeChange="0.25" IsMoveToPointEnabled="True" VerticalAlignment="Center" ToolTip="预览视图缩放 · Ctrl+滚轮" />
+                            <Button x:Name="PreviewZoomResetButton" Grid.Column="2" Content="回位" Style="{StaticResource ToolButton}" ToolTip="恢复适配窗口（100%）" />
+                        </Grid>
+                        <Grid Grid.Row="3" Margin="15,7,15,11">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="33*" /><ColumnDefinition Width="34*" /><ColumnDefinition Width="33*" /></Grid.ColumnDefinitions>
                             <TextBlock x:Name="CurrentTimeText" Text="00:00:00:00" Foreground="{StaticResource Accent}" FontFamily="Consolas" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
@@ -280,7 +310,7 @@
             <!-- The scroll viewer exposes both scrollbars and supports wheel and touch panning. -->
             <Border Grid.Row="2" Margin="8,4,8,8" Background="{StaticResource Panel}" CornerRadius="7" BorderBrush="{StaticResource Line}" BorderThickness="1">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <Grid Grid.Row="0" Margin="12,7">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="65*" /><ColumnDefinition Width="35*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
@@ -289,6 +319,7 @@
                             <Button x:Name="SplitButton" Content="✂ 分割" Style="{StaticResource ToolButton}" />
                             <Button x:Name="DeleteButton" Content="▤ 删除" Style="{StaticResource ToolButton}" />
                             <Button x:Name="PropertiesButton" Content="⚙ 属性" Style="{StaticResource ToolButton}" ToolTip="编辑选中片段属性；文字片段包含字体、描边和阴影" />
+                            <Button x:Name="MagneticButton" Content="磁性：关" Style="{StaticResource ToolButton}" ToolTip="持续闭合空隙；锁定轨道与跨轨关联对象保留位置" />
                             <Button x:Name="SnapButton" Content="⊞ 吸附" Style="{StaticResource ToolButton}" />
                         </StackPanel>
                         <Grid Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Stretch">
@@ -297,6 +328,13 @@
                             <Slider x:Name="TimelineZoomSlider" Grid.Column="1" Minimum="0.25" Maximum="4" Value="1" SmallChange="0.1" LargeChange="0.5" Margin="7,0" VerticalAlignment="Center" />
                             <TextBlock Grid.Column="2" Text="＋" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
                         </Grid>
+                    </Grid>
+                    <Grid Grid.Row="2" Margin="8,3">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="5*" /><ColumnDefinition Width="30*" /><ColumnDefinition Width="5*" /><ColumnDefinition Width="30*" /><ColumnDefinition Width="20*" /><ColumnDefinition Width="10*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="L" /><ProgressBar x:Name="MeterLeft" Grid.Column="1" Maximum="60" Foreground="#54C6A8" Background="#282B32" ToolTip="实际混音左声道 -60 至 0 dBFS" />
+                        <TextBlock Text="R" Grid.Column="2" HorizontalAlignment="Center" /><ProgressBar x:Name="MeterRight" Grid.Column="3" Maximum="60" Foreground="#54C6A8" Background="#282B32" ToolTip="实际混音右声道 -60 至 0 dBFS" />
+                        <TextBlock x:Name="MeterPeakText" Grid.Column="4" FontSize="10" Margin="6,0,0,0" TextTrimming="CharacterEllipsis" Text="峰 L -60 / R -60 dBFS" />
+                        <Button x:Name="MeterResetButton" Grid.Column="5" Content="电平复位" Style="{StaticResource ToolButton}" Padding="2,0" />
                     </Grid>
                     <!-- The drag block floats above the scrolling canvas so it
                          tracks the pointer instead of the scroll offset. -->

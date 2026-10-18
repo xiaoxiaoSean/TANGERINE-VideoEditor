@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,7 +22,7 @@ public partial class MainWindow
     private string _previewGpuMode = "自动（GPU 优先）";
     private sealed record WorkspaceLayout(double UpperRatio, double LibraryRatio, int CategoryIndex,
         int PreviewQualityIndex, double TimelineZoom, bool AutoSave,
-        Dictionary<string, string>? Shortcuts = null, string PreviewGpuMode = "自动（GPU 优先）");
+        Dictionary<string, string>? Shortcuts = null, string PreviewGpuMode = "自动（GPU 优先）", double PreviewViewZoom = 1, int MediaViewIndex = 1);
     private static string WorkspaceSettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "TANGERINE-VideoEditor", "workspace.json");
@@ -35,11 +35,13 @@ public partial class MainWindow
 
     private void InitializeExtendedWorkspace()
     {
+        InitializePreviewExperience();
         PreviewQualityBox.ItemsSource = new[] { "预览：适配窗口", "预览：1/2", "预览：1/4" };
         PreviewQualityBox.SelectedIndex = 0;
         PreviewQualityBox.SelectionChanged += (_, _) =>
         {
             InvalidateCompositedPreview();
+            InvalidateIdlePreview();
             StatusText.Text = $"已选择 {PreviewQualityBox.SelectedItem}";
         };
         AspectRatioBox.ItemsSource = new[] { "16:9", "4:3", "1:1", "9:16", "4:5" };
@@ -107,9 +109,9 @@ public partial class MainWindow
         panel.Children.Add(autoSave);
         panel.Children.Add(new TextBlock { Text = "快捷键设置", FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8) });
-        var command = new ComboBox { ItemsSource = new[] { "分割片段", "删除片段", "复制片段", "剪切片段", "粘贴片段", "冻结帧" },
+        var command = new ComboBox { ItemsSource = McpShortcutNames,
             SelectedIndex = 0, Margin = new Thickness(0, 0, 0, 8) };
-        var shortcut = new TextBox { ToolTip = "例如 Ctrl+Alt+K", Margin = new Thickness(0, 0, 0, 8) };
+        var shortcut = new TextBox { ToolTip = "例如 Ctrl+Alt+K、F8、Left；文字输入时不执行剪辑命令", Margin = new Thickness(0, 0, 0, 8) };
         var assign = new Button { Content = "设置快捷键", Padding = new Thickness(12, 6, 12, 6) };
         assign.Click += async (_, _) =>
         {
@@ -120,7 +122,8 @@ public partial class MainWindow
                     "快捷键无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            ApplyCustomShortcut(name, key, modifiers);
+            try { ApplyCustomShortcut(name, key, modifiers); }
+            catch (TANGERINE_VideoEditor.Tools.StageException exception) { StatusText.Text = $"{exception.Message} · {exception.StageCode}"; return; }
             StatusText.Text = $"已设置“{name}”快捷键：{shortcut.Text.Trim()}";
             await SaveCurrentWorkspaceAsync();
         };
@@ -140,7 +143,7 @@ public partial class MainWindow
         key = Key.None;
         modifiers = ModifierKeys.None;
         string[] parts = value.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length is < 2 or > 4) return false;
+        if (parts.Length is < 1 or > 4) return false;
         foreach (string part in parts[..^1])
         {
             ModifierKeys flag = part.ToLowerInvariant() switch
@@ -153,12 +156,14 @@ public partial class MainWindow
             if (flag == ModifierKeys.None || modifiers.HasFlag(flag)) return false;
             modifiers |= flag;
         }
-        return modifiers != ModifierKeys.None && Enum.TryParse(parts[^1], true, out key) &&
-            (key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9 or >= Key.F1 and <= Key.F12);
+        return Enum.TryParse(parts[^1], true, out key) &&
+            (key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9 or >= Key.F1 and <= Key.F12 or Key.Left or Key.Right or Key.Space or Key.Delete);
     }
 
     private void ApplyCustomShortcut(string name, Key key, ModifierKeys modifiers)
     {
+        if (_customShortcutBindings.Any(p => p.Key != name && p.Value is KeyBinding existing && existing.Key == key && existing.Modifiers == modifiers))
+            throw new TANGERINE_VideoEditor.Tools.StageException("WKSPC0005", "该按键已被另一个自定义命令使用。");
         if (_customShortcutBindings.Remove(name, out InputBinding? previous)) InputBindings.Remove(previous);
         Action action = name switch
         {
@@ -168,9 +173,14 @@ public partial class MainWindow
             "剪切片段" => CutSelectedClip,
             "粘贴片段" => PasteClipboardClip,
             "冻结帧" => FreezeSelectedFrame,
+            "上一帧" => () => NudgePlayhead(-1), "下一帧" => () => NudgePlayhead(1),
+            "波纹删除" => RippleDeleteSelectedClip, "波纹修剪开头" => RippleTrimStartToPlayhead,
+            "波纹修剪结尾" => RippleTrimEndToPlayhead, "切换吸附" => ToggleTimelineSnapping,
+            "切换磁性模式" => ToggleMagneticTimeline, "剃刀分割" => SplitSelectedClip,
+            "播放暂停" => TogglePlayback, "停止播放" => StopPlayback,
             _ => throw new ArgumentException("未知快捷键命令。", nameof(name))
         };
-        var binding = new KeyBinding(new RelayCommand(action), key, modifiers);
+        var binding = new KeyBinding(new RelayCommand(() => { if (!IsTextInputFocused()) action(); }), key, modifiers);
         InputBindings.Insert(0, binding);
         _customShortcutBindings[name] = binding;
     }
@@ -187,10 +197,10 @@ public partial class MainWindow
 
     private void ApplyWorkspacePreset(double upperRatio, double libraryRatio, int categoryIndex)
     {
-        UpperWorkspaceRow.Height = new GridLength(upperRatio, GridUnitType.Star);
-        TimelineWorkspaceRow.Height = new GridLength(1 - upperRatio, GridUnitType.Star);
-        LibraryWorkspaceColumn.Width = new GridLength(libraryRatio, GridUnitType.Star);
-        PreviewWorkspaceColumn.Width = new GridLength(1 - libraryRatio, GridUnitType.Star);
+        UpperWorkspaceRow.Height = new GridLength(upperRatio * 100, GridUnitType.Star);
+        TimelineWorkspaceRow.Height = new GridLength((1 - upperRatio) * 100, GridUnitType.Star);
+        LibraryWorkspaceColumn.Width = new GridLength(libraryRatio * 100, GridUnitType.Star);
+        PreviewWorkspaceColumn.Width = new GridLength((1 - libraryRatio) * 100, GridUnitType.Star);
         CategoryList.SelectedIndex = Math.Clamp(categoryIndex, 0, Math.Max(0, CategoryList.Items.Count - 1));
         StatusText.Text = "已切换工作区布局";
     }
@@ -208,11 +218,11 @@ public partial class MainWindow
                 string modifier = binding.Modifiers.HasFlag(ModifierKeys.Control) ? "Ctrl" : string.Empty;
                 if (binding.Modifiers.HasFlag(ModifierKeys.Alt)) modifier += "+Alt";
                 if (binding.Modifiers.HasFlag(ModifierKeys.Shift)) modifier += "+Shift";
-                return $"{modifier.TrimStart('+')}+{binding.Key}";
+                return modifier.Length == 0 ? binding.Key.ToString() : $"{modifier.TrimStart('+')}+{binding.Key}";
             });
         return new WorkspaceLayout(Math.Clamp(upper, .15, .85), Math.Clamp(library, .15, .85),
-            CategoryList.SelectedIndex, PreviewQualityBox.SelectedIndex, TimelineZoomSlider.Value,
-            _autoSaveEnabled, shortcuts, _previewGpuMode);
+            CategoryList.SelectedIndex >= _categories.Length ? _lastLibraryCategory : CategoryList.SelectedIndex, PreviewQualityBox.SelectedIndex, TimelineZoomSlider.Value,
+            _autoSaveEnabled, shortcuts, _previewGpuMode, PreviewZoomSlider.Value, MediaViewBox.SelectedIndex);
     }
 
     private async Task SaveCurrentWorkspaceAsync()
@@ -262,6 +272,8 @@ public partial class MainWindow
                 Math.Clamp(layout.LibraryRatio, .15, .85), layout.CategoryIndex);
             PreviewQualityBox.SelectedIndex = Math.Clamp(layout.PreviewQualityIndex, 0, 2);
             TimelineZoomSlider.Value = Math.Clamp(layout.TimelineZoom, TimelineZoomSlider.Minimum, TimelineZoomSlider.Maximum);
+            PreviewZoomSlider.Value = double.IsFinite(layout.PreviewViewZoom) ? Math.Clamp(layout.PreviewViewZoom, .1, 4) : 1;
+            MediaViewBox.SelectedIndex = Math.Clamp(layout.MediaViewIndex, 0, 2);
             _autoSaveEnabled = layout.AutoSave;
             _previewGpuMode = string.IsNullOrWhiteSpace(layout.PreviewGpuMode)
                 ? "自动（GPU 优先）" : layout.PreviewGpuMode;

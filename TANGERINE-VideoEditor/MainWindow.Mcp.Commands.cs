@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Controls;
@@ -166,10 +166,10 @@ public partial class MainWindow
             {
                 string id = McpString(args, "assetId");
                 var tracks = _project.Tracks.Concat(_project.Sequences.SelectMany(sequence => sequence.Tracks)).ToArray();
-                if (!McpBool(args, "removeClips") && tracks.SelectMany(track => track.Clips).Any(clip => clip.MediaAssetId == id))
+                if (!McpBool(args, "removeClips") && tracks.SelectMany(track => track.Clips).Any(clip => (clip.MediaAssetId == id || clip.Stabilization.Enabled && clip.Stabilization.OriginalAssetId == id)))
                     throw new StageException("MCPRT0008", "素材仍被片段引用，请设置 removeClips。");
-                foreach (var track in tracks.Where(track => track.Clips.Any(clip => clip.MediaAssetId == id)))
-                { McpWritable(track); track.Clips.RemoveAll(clip => clip.MediaAssetId == id); }
+                foreach (var track in tracks.Where(track => track.Clips.Any(clip => (clip.MediaAssetId == id || clip.Stabilization.Enabled && clip.Stabilization.OriginalAssetId == id))))
+                { McpWritable(track); track.Clips.RemoveAll(clip => (clip.MediaAssetId == id || clip.Stabilization.Enabled && clip.Stabilization.OriginalAssetId == id)); }
                 _project.Subclips.RemoveAll(item => item.ParentAssetId == id);
                 if (_project.Media.RemoveAll(item => item.Id == id) == 0) throw new StageException("MCPRT0009", "素材不存在。");
             });

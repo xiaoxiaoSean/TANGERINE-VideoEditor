@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Input;
@@ -8,7 +8,7 @@ namespace TANGERINE_VideoEditor;
 
 public partial class MainWindow
 {
-    private static readonly string[] McpShortcutNames = ["分割片段", "删除片段", "复制片段", "剪切片段", "粘贴片段", "冻结帧"];
+    private static readonly string[] McpShortcutNames = ["分割片段", "删除片段", "复制片段", "剪切片段", "粘贴片段", "冻结帧", "上一帧", "下一帧", "波纹删除", "波纹修剪开头", "波纹修剪结尾", "切换吸附", "切换磁性模式", "剃刀分割", "播放暂停", "停止播放"];
     private static readonly string[] McpGpuModes = ["自动（GPU 优先）", "CPU 软件渲染", "NVIDIA CUDA", "Intel QSV", "AMD AMF"];
 
     private WorkspaceLayout McpCaptureWorkspace()
@@ -32,6 +32,7 @@ public partial class MainWindow
         {
             upperRatio = layout.UpperRatio, libraryRatio = layout.LibraryRatio, zoom = layout.TimelineZoom,
             snap = _snapEnabled, gpuMode = layout.PreviewGpuMode, autoSave = layout.AutoSave,
+            previewViewZoom = layout.PreviewViewZoom, mediaViewIndex = layout.MediaViewIndex,
             previewQualityIndex = layout.PreviewQualityIndex, categoryIndex = layout.CategoryIndex,
             globalMute = _globalMute, soloTrackId = _soloTrackId, shortcuts = layout.Shortcuts,
             availableShortcutCommands = McpShortcutNames, workspacePath = WorkspaceSettingsPath
@@ -49,7 +50,7 @@ public partial class MainWindow
         string action = McpString(args, "action", "apply");
         WorkspaceLayout candidate = McpCaptureWorkspace();
         var patch = args["patch"]?.DeepClone().AsObject() ?? new JsonObject();
-        foreach (string key in new[] { "upperRatio", "libraryRatio", "zoom", "shortcuts" })
+        foreach (string key in new[] { "upperRatio", "libraryRatio", "zoom", "shortcuts", "previewViewZoom", "mediaViewIndex" })
             if (args.TryGetPropertyValue(key, out JsonNode? value))
             {
                 if (patch.ContainsKey(key)) throw new StageException("MCPWS0001", "同一工作区参数不能同时出现在顶层与 patch 中：" + key);
@@ -90,6 +91,8 @@ public partial class MainWindow
                 UpperRatio = McpDouble(patch, "upperRatio", candidate.UpperRatio),
                 LibraryRatio = McpDouble(patch, "libraryRatio", candidate.LibraryRatio),
                 TimelineZoom = McpDouble(patch, "zoom", candidate.TimelineZoom),
+                PreviewViewZoom = McpDouble(patch, "previewViewZoom", candidate.PreviewViewZoom),
+                MediaViewIndex = McpInt(patch, "mediaViewIndex", candidate.MediaViewIndex),
                 AutoSave = McpBool(patch, "autoSave", candidate.AutoSave),
                 PreviewGpuMode = McpString(patch, "gpuMode", candidate.PreviewGpuMode),
                 PreviewQualityIndex = McpInt(patch, "previewQualityIndex", candidate.PreviewQualityIndex),
@@ -151,6 +154,7 @@ public partial class MainWindow
         if (!double.IsFinite(layout.UpperRatio) || layout.UpperRatio is < .15 or > .85 ||
             !double.IsFinite(layout.LibraryRatio) || layout.LibraryRatio is < .15 or > .85 ||
             !double.IsFinite(layout.TimelineZoom) || layout.TimelineZoom < TimelineZoomSlider.Minimum || layout.TimelineZoom > TimelineZoomSlider.Maximum ||
+            !double.IsFinite(layout.PreviewViewZoom) || layout.PreviewViewZoom is < .1 or > 4 || layout.MediaViewIndex is < 0 or > 2 ||
             layout.PreviewQualityIndex is < 0 or > 2 || layout.CategoryIndex < 0 || layout.CategoryIndex >= CategoryList.Items.Count ||
             !McpGpuModes.Contains(layout.PreviewGpuMode, StringComparer.Ordinal))
             throw new StageException("MCPWS0001", "工作区比例、缩放、预览模式或分类超出范围。");
@@ -168,6 +172,8 @@ public partial class MainWindow
         ApplyWorkspacePreset(layout.UpperRatio, layout.LibraryRatio, layout.CategoryIndex);
         PreviewQualityBox.SelectedIndex = layout.PreviewQualityIndex;
         TimelineZoomSlider.Value = layout.TimelineZoom;
+        PreviewZoomSlider.Value = layout.PreviewViewZoom;
+        MediaViewBox.SelectedIndex = layout.MediaViewIndex;
         _previewGpuMode = layout.PreviewGpuMode;
         _autoSaveEnabled = layout.AutoSave;
         if (_autoSaveEnabled) _autoSaveTimer.Start(); else _autoSaveTimer.Stop();

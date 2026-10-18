@@ -22,6 +22,12 @@ public partial class MainWindow
     private void AddTransitionParameterRows(Panel host, ClipTransition transition, Thickness margin,
         Action<string> changed)
     {
+        foreach (var track in _project.Tracks)
+        foreach (var incoming in track.Clips)
+            if (BoundaryCrossfade.TryGetTransition(track, incoming, _project.Sequence.FramesPerSecond,
+                out TimelineClip? prior, out ClipTransition? found, out double duration) && found?.Id == transition.Id && prior is not null)
+                host.Children.Add(new TextBlock { Text = TransitionHandles.Describe(prior, _project.Media.FirstOrDefault(m => m.Id == prior.MediaAssetId), duration),
+                    TextWrapping = TextWrapping.Wrap, Foreground = Brush("#FFB66D"), Margin = margin });
         foreach (TransitionSettings.Parameter parameter in TransitionSettings.Describe(transition.PresetId))
             AddTransitionNumber(host, margin, parameter.Label,
                 TransitionSettings.Value(transition, parameter.Key), parameter.Minimum, parameter.Maximum,

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -154,6 +154,40 @@ public partial class MainWindow
             case "media_reframe": return McpReframeStart(args);
             case "mask_track": return McpMaskTrackStart(args);
             case "scope_capture": return McpScopeCaptureStart(args);
+            case "audio_source_streams":
+            {
+                var clip = McpClip(McpString(args, "clipId")); var asset = McpFeatureAssetFor(clip);
+                if (asset.AudioStreams.Count == 0)
+                {
+                    var owner = _project; long revision = _projectRevision;
+                    var metadata = await MediaMetadataProbe.TryReadAsync(asset.EffectiveExportPath, cancellationToken);
+                    McpRequireCurrent(owner, revision);
+                    if (metadata?.AudioStreams is not null) { asset.AudioStreams = metadata.AudioStreams.ToList(); asset.HasAudio = metadata.HasAudio; MarkProjectDirty(); }
+                }
+                return new { assetId = asset.Id, streams = asset.AudioStreams, selectedIndex = clip.SourceAudioStreamIndex };
+            }
+            case "audio_detach":
+            {
+                var clip = McpClip(McpString(args, "clipId")); DetachClipAudio(clip); return McpState(false);
+            }
+            case "audio_attach":
+            {
+                var clip = McpClip(McpString(args, "clipId")); AttachClipAudio(clip); return McpState(false);
+            }
+            case "audio_normalize":
+            {
+                var clip = McpClip(McpString(args, "clipId"));
+                await NormalizeClipAudioAsync(clip, McpDouble(args, "targetLufs", -14), McpDouble(args, "truePeakDb", -1), cancellationToken);
+                return new { clipId = clip.Id, settings = AudioSettings.FromClip(clip) };
+            }
+            case "video_stabilize":
+            {
+                var clip = McpClip(McpString(args, "clipId"));
+                if (!McpBool(args, "enabled", true)) DisableVideoStabilization(clip);
+                else await StabilizeVideoAsync(clip, McpInt(args, "smoothing", 30), McpInt(args, "shakiness", 5), McpDouble(args, "maxZoomPercent", 10), cancellationToken);
+                return new { clipId = clip.Id, settings = clip.Stabilization };
+            }
+            case "audio_meter_get": return new { leftPeak = _meterPeakL, rightPeak = _meterPeakR, clipped = _meterClipped, playing = _timelineAudioPlayerRunning };
             case "audio_settings_get": return McpAudioSettings(args, update: false);
             case "audio_settings_update": return McpAudioSettings(args, update: true);
             case "audio_remix": return McpAudioRemix(args);
@@ -358,7 +392,7 @@ public partial class MainWindow
         return McpStartJob("分析音乐节拍", async (_, token) => new
         {
             clipId = clip.Id,
-            bpm = await AudioWaveformAnalysis.EstimateTempoAsync(path, clip.SourceInSeconds, duration, token)
+            bpm = await AudioWaveformAnalysis.EstimateTempoAsync(path, clip.SourceInSeconds, duration, token, clip.SourceAudioStreamIndex)
         });
     }
 

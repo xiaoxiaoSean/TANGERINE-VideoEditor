@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
@@ -220,13 +220,16 @@ public partial class MainWindow
 
     private void MarkProjectDirty()
     {
+        if (_project.Sequence.MagneticTimeline) ApplyMagneticTimeline();
         _projectRevision++;
+        InvalidateIdlePreview();
         _isProjectDirty = true;
         RefreshProjectChrome();
     }
 
     private void ResetEditorSession()
     {
+        InvalidateIdlePreview();
         _mediaMetadataCancellation?.Cancel();
         _mediaMetadataCancellation = null;
         _undoStates.Clear();

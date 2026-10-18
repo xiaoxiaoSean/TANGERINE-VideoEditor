@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -14,9 +14,12 @@ namespace TANGERINE_VideoEditor;
 /// </summary>
 public partial class MainWindow
 {
-    private readonly string[] _categories = ["媒体", "文字", "特效", "转场", "贴纸", "滤镜"];
+    private readonly string[] _categories = ["媒体", "文字", "效果", "转场", "贴纸"];
     private int _lastLibraryCategory;
     private Point _libraryDragStart;
+    private LibraryItem? _libraryPressedItem;
+    private bool _libraryDragInProgress;
+    private bool _catalogPreviewPending;
     private readonly SemaphoreSlim _mediaImportGate = new(1, 1);
     private readonly SemaphoreSlim _mediaProbeGate = new(2, 2);
     private CancellationTokenSource? _mediaMetadataCancellation;
@@ -44,7 +47,10 @@ public partial class MainWindow
         AssetSearchBox.TextChanged += (_, _) => RefreshLibrary();
         AssetList.PreviewMouseLeftButtonDown += AssetList_PreviewMouseLeftButtonDown;
         AssetList.PreviewMouseMove += AssetList_PreviewMouseMove;
-        AssetList.SelectionChanged += (_, _) => PreviewSelectedCatalogItem();
+        AssetList.LostMouseCapture += (_, args) =>
+        {
+            if (ReferenceEquals(args.OriginalSource, AssetList) && !AssetList.IsMouseCaptured && !_libraryDragInProgress) _libraryPressedItem = null;
+        };
         AssetList.PreviewMouseLeftButtonUp += AssetList_PreviewMouseLeftButtonUp;
         PreviewMediaElement.MediaEnded += (_, _) =>
         {
@@ -58,11 +64,6 @@ public partial class MainWindow
             // Keep ownership until the media element releases the file. Its
             // last frame can remain open after MediaEnded on Windows; the next
             // selection, category change or window close releases this lease.
-        };
-        AssetList.MouseDoubleClick += (_, _) =>
-        {
-            if (CategoryList.SelectedIndex == 0) OpenSelectedSourceMonitor();
-            else AddSelectedLibraryItem();
         };
         LibraryAddButton.Click += async (_, _) =>
         {
@@ -80,38 +81,72 @@ public partial class MainWindow
     private bool _catalogPreviewActive;
     private long _catalogPreviewGeneration;
 
+    /// <summary>
+    /// Resolve the card at the actual pointer, not OriginalSource or SelectedItem.
+    /// A captured ListBox can route later events through the preceding card.
+    /// </summary>
+    private LibraryItem? LibraryItemAt(Point point)
+    {
+        if (AssetList.InputHitTest(point) is not DependencyObject source) return null;
+        return (ItemsControl.ContainerFromElement(AssetList, source) as ListBoxItem)?.Content as LibraryItem;
+    }
+
     private void AssetList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs args)
     {
-        if (args.OriginalSource is not DependencyObject source) return;
-        ListBoxItem? container = ItemsControl.ContainerFromElement(AssetList, source) as ListBoxItem;
-        if (container?.Content is not LibraryItem item) return;
-        if (!ReferenceEquals(AssetList.SelectedItem, item))
-        {
-            AssetList.SelectedItem = item;
-            return;
-        }
+        if (CompleteLibraryClick(args.GetPosition(AssetList))) args.Handled = true;
+    }
+
+    private bool CompleteLibraryClick(Point point)
+    {
+        LibraryItem? pressed = _libraryPressedItem;
+        _libraryPressedItem = null;
+        if (AssetList.IsMouseCaptured) AssetList.ReleaseMouseCapture();
+        if (_libraryDragInProgress || pressed is null || !ReferenceEquals(pressed, LibraryItemAt(point))) return false;
+        AssetList.SelectedItem = pressed;
+        // One completed click schedules one preview; selection changes do not
+        // start a competing worker before mouse-up can distinguish a drag.
         PreviewSelectedCatalogItem();
+        return true;
     }
 
     private void AssetList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs args)
     {
-        _libraryDragStart = args.GetPosition(AssetList);
-        if (args.OriginalSource is not DependencyObject source) return;
-        if (ItemsControl.ContainerFromElement(AssetList, source) is ListBoxItem container &&
-            container.Content is LibraryItem item)
+        if (BeginLibraryGesture(args.GetPosition(AssetList), args.ClickCount)) args.Handled = true;
+    }
+
+    private bool BeginLibraryGesture(Point point, int clickCount)
+    {
+        if (_libraryDragInProgress) return false;
+        _libraryDragStart = point;
+        _libraryPressedItem = LibraryItemAt(point);
+        if (_libraryPressedItem is null) return false;
+        AssetList.Focus();
+        AssetList.SelectedItem = _libraryPressedItem;
+        // Own the gesture instead of letting ListBoxItem capture a stale card.
+        if (clickCount == 2)
         {
-            // Select on mouse-down as well as through the default ListBox
-            // class handler. This keeps custom card templates clickable even
-            // when a child element captures the mouse during the gesture.
-            AssetList.SelectedItem = item;
+            _libraryPressedItem = null;
+            AssetList.ReleaseMouseCapture();
+            if (CategoryList.SelectedIndex == 0) OpenSelectedSourceMonitor();
+            else AddSelectedLibraryItem();
         }
+        return true;
+    }
+
+    private void FinishLibraryDrag()
+    {
+        _libraryPressedItem = null;
+        _libraryDragInProgress = false;
+        if (AssetList.IsMouseCaptured) AssetList.ReleaseMouseCapture();
+        RemoveDropGhost();
     }
 
     private void StopCatalogPreview()
     {
         // Read before clearing: only a preview that actually took over the
         // monitor needs the timeline restored afterwards.
-        bool wasActive = _catalogPreviewActive;
+        bool wasActive = _catalogPreviewActive || _catalogPreviewPending;
+        _catalogPreviewPending = false;
         Interlocked.Increment(ref _catalogPreviewGeneration);
         _catalogPreviewActive = false;
         _catalogPreviewCancellation?.Cancel();
@@ -125,6 +160,7 @@ public partial class MainWindow
         }
         _catalogPreviewPath = null;
         CatalogPlaybackBar.Visibility = Visibility.Collapsed;
+        CatalogPreviewProgressBar.Visibility = Visibility.Collapsed;
         CatalogPlaybackSlider.Value = 0;
         CatalogPlaybackTime.Text = "00:00 / 00:00";
         // A demonstration hid the timeline's overlays and re-laid out the media
@@ -140,12 +176,18 @@ public partial class MainWindow
 
     private void PreviewSelectedCatalogItem()
     {
-        _catalogPreviewCancellation?.Cancel();
-        long generation = Interlocked.Increment(ref _catalogPreviewGeneration);
-        int category = CategoryList.SelectedIndex;
         LibraryItem? selected = AssetList.SelectedItem as LibraryItem;
-        if (category is not (1 or 2 or 3 or 5) || selected is null ||
-            selected.Source is not BuiltinPreset preset) return;
+        if (selected?.Source is not BuiltinPreset preset || selected.Category is not (1 or 2 or 3 or 5)) return;
+        int category = selected.Category;
+        StopCatalogPreview();
+        if (_isPlaying) TogglePlayback();
+        StopCachedPreview();
+        ClearRenderedPreviewFrame();
+        _previewImageRequest++;
+        _previewImageLoadingPath = null;
+        _previewSourcePath = null;
+        _catalogPreviewPending = true;
+        long generation = Interlocked.Increment(ref _catalogPreviewGeneration);
         StatusText.Text = $"正在生成“{preset.Name}”示例预览…";
         PreviewMediaElement.Stop();
         PreviewMediaElement.Source = null;
@@ -208,6 +250,7 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(() =>
                 {
                     if (token.IsCancellationRequested || generation != Volatile.Read(ref _catalogPreviewGeneration)) return;
+                    _catalogPreviewPending = false;
                     CatalogPreviewProgressBar.Visibility = Visibility.Collapsed;
                     PreviewMessage.Text = "示例预览生成失败";
                     StatusText.Text = $"示例预览失败：{exception.Message}";
@@ -275,6 +318,7 @@ public partial class MainWindow
 
     private void PlayCatalogPreview(string path)
     {
+        _catalogPreviewPending = false;
         _catalogPreviewActive = true;
         PreviewRenderedFrame.Visibility = Visibility.Collapsed;
         PreviewImage.Visibility = Visibility.Collapsed;
@@ -308,11 +352,12 @@ public partial class MainWindow
             : Math.Max(0, CategoryList.SelectedIndex);
         string query = AssetSearchBox?.Text.Trim() ?? string.Empty;
         LibraryTitle.Text = _categories[category];
+        if (MediaViewBox.ItemsSource is not null) ApplyMediaView();
         LibrarySubtitle.Text = category switch
         {
             0 => "导入媒体，拖入时间线开始创作",
             1 => "双击添加文字，或拖到时间线",
-            2 => "把特效拖到已有片段上",
+            2 => "滤镜与特效统一在此，拖到片段上并调整参数",
             3 => "把转场拖到两个相邻片段之间",
             4 => "把贴纸拖到时间线或预览区",
             _ => "把滤镜拖到可见片段上，可继续调整并添加关键帧"
@@ -342,7 +387,7 @@ public partial class MainWindow
             IReadOnlyList<BuiltinPreset> presets = category switch
             {
                 1 => BuiltinCatalog.Titles,
-                2 => BuiltinCatalog.Effects,
+                2 => BuiltinCatalog.Effects.Concat(BuiltinCatalog.Filters).ToArray(),
                 3 => BuiltinCatalog.Transitions,
                 4 => BuiltinCatalog.Stickers,
                 _ => BuiltinCatalog.Filters
@@ -361,6 +406,7 @@ public partial class MainWindow
         }
         string? selectedAsset = (AssetList.SelectedItem as LibraryItem)?.Source is MediaAsset selected ? selected.Id : null;
         AssetList.ItemsSource = items;
+        LoadLibraryThumbnails(items);
         if (category == 0 && selectedAsset is not null) AssetList.SelectedItem = items.FirstOrDefault(item => item.Id == selectedAsset);
         EmptyLibraryMessage.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyLibraryMessage.Text = category == 0 ? "点击导入，或把媒体文件直接拖到这里" : "没有匹配的内置对象";
@@ -368,14 +414,31 @@ public partial class MainWindow
 
     private void AssetList_PreviewMouseMove(object sender, MouseEventArgs args)
     {
-        if (args.LeftButton != MouseButtonState.Pressed || AssetList.SelectedItem is not LibraryItem item) return;
+        if (_libraryDragInProgress) return;
+        if (args.LeftButton != MouseButtonState.Pressed) { FinishLibraryDrag(); return; }
+        if (_libraryPressedItem is not LibraryItem item) return;
         Point point = args.GetPosition(AssetList);
         if (Math.Abs(point.X - _libraryDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
             Math.Abs(point.Y - _libraryDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-        if (item.Source is MediaAsset source && !_project.Media.Any(asset => asset.Id == source.Id)) return;
-        // WPF's synchronous drag loop pumps dispatcher messages while the
-        // pointer is held; the source data stays immutable for this gesture.
-        DragDrop.DoDragDrop(AssetList, new DataObject(typeof(LibraryItem), item), DragDropEffects.Copy);
+        if (!AssetList.Items.Cast<object>().Any(candidate => ReferenceEquals(candidate, item)) ||
+            item.Source is MediaAsset source && !_project.Media.Any(asset => asset.Id == source.Id))
+        { FinishLibraryDrag(); return; }
+        _libraryPressedItem = null;
+        _libraryDragInProgress = true;
+        if (AssetList.IsMouseCaptured) AssetList.ReleaseMouseCapture();
+        StopCatalogPreview();
+        try
+        {
+            // The immutable press target belongs only to this native drag loop.
+            DragDrop.DoDragDrop(AssetList, new DataObject(typeof(LibraryItem), item), DragDropEffects.Copy);
+        }
+        finally
+        {
+            // Covers successful drops, returning to the library, Escape,
+            // release outside the window, and exceptions from the native loop.
+            FinishLibraryDrag();
+        }
+        args.Handled = true;
     }
 
     private void AddSelectedLibraryItem()
@@ -422,6 +485,9 @@ public partial class MainWindow
 
     private void LibraryDropSurface_DragOver(object sender, DragEventArgs args)
     {
+        RemoveDropGhost();
+        args.Effects = DragDropEffects.None;
+        args.Handled = true;
         try
         {
             if (args.Data.GetDataPresent(DataFormats.FileDrop))
@@ -435,6 +501,14 @@ public partial class MainWindow
 
     private async void LibraryDropSurface_Drop(object sender, DragEventArgs args)
     {
+        RemoveDropGhost();
+        try
+        {
+            if (args.Data.GetDataPresent(typeof(LibraryItem)))
+            { args.Effects = DragDropEffects.None; args.Handled = true; return; }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        { args.Effects = DragDropEffects.None; args.Handled = true; return; }
         if (!_projectCreated)
         {
             args.Handled = true;
@@ -696,7 +770,8 @@ public partial class MainWindow
                     if (!ReferenceEquals(targetProject, _project) || cancellationToken.IsCancellationRequested) return;
                     MediaAsset? current = targetProject.Media.FirstOrDefault(candidate => candidate.Id == asset.Id);
                     if (current is null) return;
-                    bool changed = (metadata.DurationSeconds is > 0 && current.DurationSeconds != metadata.DurationSeconds) ||
+                    bool changed = System.Text.Json.JsonSerializer.Serialize(current.AudioStreams) != System.Text.Json.JsonSerializer.Serialize(metadata.AudioStreams ?? []) ||
+                        (metadata.DurationSeconds is > 0 && current.DurationSeconds != metadata.DurationSeconds) ||
                         current.Width != metadata.Width || current.Height != metadata.Height ||
                         current.FramesPerSecond != metadata.FramesPerSecond || current.HasAudio != metadata.HasAudio ||
                         current.VideoCodec != metadata.VideoCodec || current.AudioCodec != metadata.AudioCodec ||
@@ -710,6 +785,7 @@ public partial class MainWindow
                     current.Height = metadata.Height;
                     current.FramesPerSecond = metadata.FramesPerSecond;
                     current.HasAudio = metadata.HasAudio;
+                    current.AudioStreams = metadata.AudioStreams?.ToList() ?? [];
                     current.VideoCodec = metadata.VideoCodec;
                     current.AudioCodec = metadata.AudioCodec;
                     current.AudioChannels = metadata.AudioChannels;
@@ -796,8 +872,12 @@ public partial class MainWindow
         };
     }
 
-    private sealed record LibraryItem(string Id, string Name, string Description, string AccentHex, int Category, object Source)
+    private sealed record LibraryItem(string Id, string Name, string Description, string AccentHex, int Category, object Source) : System.ComponentModel.INotifyPropertyChanged
     {
+        public System.Windows.Media.Imaging.BitmapSource? Thumbnail { get; set; }
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        public void SetThumbnail(System.Windows.Media.Imaging.BitmapSource bitmap)
+        { Thumbnail = bitmap; PropertyChanged?.Invoke(this, new(nameof(Thumbnail))); }
         public override string ToString() => $"{Name}  ·  {Description}";
     }
 }

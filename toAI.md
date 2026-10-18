@@ -1,6 +1,15 @@
-# TANGERINE-VideoEditor AI 操作手册
+﻿# TANGERINE-VideoEditor AI 操作手册
 
 适用版本：v1.0.0。本文面向通过 MCP 操作已打开编辑器的 AI，也说明源码测试与故障排查方法。用户当前指令优先于本文中的默认工作习惯。协议和参数以目标构建实际返回的 `tools/list`、`model_get_schema`、`catalog_schema` 为准；不要臆造工具名、参数名或预设 ID。
+
+## 0. 先用已经连接的工具，不要重新开发连接层
+
+用户让你编辑已打开的软件时，这是剪辑任务，不是服务开发任务。先搜索当前客户端已经提供的 MCP 工具（工具名可能带服务前缀），直接调用 `list_instances`。实例发现、锁定、实时刷新均由应用和随附 MCP 服务实现。
+
+- **禁止为普通剪辑任务临时编写 Node.js / Python 桥接程序、JSON-RPC 转发器、HTTP / WebSocket 服务器或网页控制台。** 不需要安装 npm 包、建立项目或监听端口，更不需要重建本软件已有的服务。
+- 已连接时直接调用工具，不重复启动第二套 MCP 服务，也不通过脚本模拟工具调用。下面的调用顺序是工具调用示意，不是让你写 JavaScript。
+- 当前客户端没有列出这些工具时，先用客户端的工具搜索/发现功能检查。仍没有时，明确报告“当前客户端尚未连接 TANGERINE MCP”，指导用户按下一节配置**随应用提供的可执行文件**并刷新连接；不要把缺少客户端连接误报为软件没有 MCP，也不要自行写替代服务器。
+- 源码开发、协议测试或用户明确要求修改连接层时，才使用本仓库已有的 .NET 项目和测试工具；这些不属于日常剪辑接管流程。
 
 ## 1. 选择正确操作方式
 
@@ -27,7 +36,7 @@ MCP 客户端配置示例（路径替换为实际安装位置）：
 }
 ```
 
-仅有 DLL 时可使用 `command: "dotnet"`，把 MCP DLL 的绝对路径作为唯一启动参数。服务使用标准输入输出 JSON-RPC，标准错误用于日志，不配置 HTTP 端口。客户端应使用标准 MCP SDK 完成初始化及工具调用；不要把日志写到协议标准输出。
+仅有 DLL 时可使用 `command: "dotnet"`，把 MCP DLL 的绝对路径作为唯一启动参数。服务使用标准输入输出 JSON-RPC，标准错误用于日志，不配置 HTTP 端口。正常使用时由 MCP 客户端负责初始化和工具调用，AI 无需自行编写 SDK 客户端。仅开发集成客户端时使用标准 MCP SDK；不要把日志写到协议标准输出。
 
 1. 调用 `list_instances({})`，读取 PID、项目名称、路径、启动时间及实例身份。
 2. 根据工程名称与路径确认目标，可直接调用 `editor_control_acquire({"processId": 实际PID, "ownerLabel": "任务目的"})`；后续每条调用携带相同 `processId`。无需先调用 `select_instance`。也可以使用 `select_instance({"processId": 实际PID})` 设置本会话默认目标，然后省略后续 PID。
@@ -207,7 +216,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 <!-- GENERATED MCP CATALOG -->
 
-本版本共 110 个 MCP 工具（含 2 个桥接工具），26 个集中输入模型。
+本版本共 116 个 MCP 工具（含 2 个桥接工具），28 个集中输入模型。
 
 ### `editor_control_acquire`
 
@@ -334,7 +343,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 新建项目；有未保存修改时需显式 discardChanges。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -356,7 +365,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 从本地 .tvep 打开项目；有未保存修改时需显式 discardChanges。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -399,7 +408,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 关闭当前项目，创建空白项目；丢弃未保存修改需显式指定。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -433,7 +442,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 原子应用 RFC 6902 JSON Patch；支持完整项目的所有公开模型字段。请先读取模型和 revision，再用 expectedRevision 防止覆盖其他操作。失败不修改项目，成功可撤销。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -637,7 +646,73 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
   "required": [
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "sequence": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "workingColorSpace": {
+          "type": "string"
+        },
+        "outputColorSpace": {
+          "type": "string"
+        },
+        "backgroundColor": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        },
+        "framesPerSecond": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 240
+        },
+        "audioSampleRate": {
+          "type": "integer",
+          "minimum": 8000,
+          "maximum": 192000
+        },
+        "magneticTimeline": {
+          "type": "boolean"
+        },
+        "playheadSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "workAreaStartSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "workAreaEndSeconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -645,7 +720,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 从项目删除指定序列。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -790,7 +865,269 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "assetId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "media": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        },
+        "labelColor": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputColorSpace": {
+          "type": "string"
+        },
+        "binId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "proxyPath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "videoCodec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "audioCodec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fileModifiedUtc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Video",
+            "Audio",
+            "Image"
+          ]
+        },
+        "durationSeconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "framesPerSecond": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hasAudio": {
+          "type": "boolean"
+        },
+        "audioStreams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceAudioStream"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "sourceInSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "sourceOutSeconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/marker"
+          }
+        },
+        "useProxy": {
+          "type": "boolean"
+        },
+        "audioChannels": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "audioSampleRate": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fileSizeBytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "sourceAudioStream": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "streamIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "codec": {
+          "type": "string"
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sampleRate": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "language": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "marker": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "timeSeconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -798,7 +1135,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 从项目移除素材；removeClips 控制是否同时移除引用片段，不删除源文件。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -903,7 +1240,35 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "assetId",
     "kind"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "analysisSettings": {
+      "type": "object",
+      "properties": {
+        "startSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 1e-06,
+          "maximum": 600
+        },
+        "bins": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 2000
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -981,7 +1346,32 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "binId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "bin": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -989,7 +1379,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 删除项目素材箱，保留源文件。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1061,7 +1451,45 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "subclipId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "subclip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parentAssetId": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "createdUtc": {
+          "type": "string"
+        },
+        "inSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1069,7 +1497,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 删除可复用子片段定义。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1137,7 +1565,834 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "trackId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "track": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isLocked": {
+          "type": "boolean"
+        },
+        "isHidden": {
+          "type": "boolean"
+        },
+        "isMuted": {
+          "type": "boolean"
+        },
+        "isSyncLocked": {
+          "type": "boolean"
+        },
+        "isSnapping": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Video",
+            "Audio"
+          ]
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/clip"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "blendMode": {
+          "type": "string"
+        },
+        "frameInterpolation": {
+          "type": "string"
+        },
+        "templateId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mediaAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nestedSequenceId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamGroupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamAngleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "linkGroupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detachedAudioClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detachedVideoClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamLocalStartSeconds": {
+          "type": "number"
+        },
+        "startSeconds": {
+          "type": "number"
+        },
+        "durationSeconds": {
+          "type": "number"
+        },
+        "sourceInSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        },
+        "volume": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "speedAdjustmentApplied": {
+          "type": "boolean"
+        },
+        "isMuted": {
+          "type": "boolean"
+        },
+        "isReversed": {
+          "type": "boolean"
+        },
+        "audioDetached": {
+          "type": "boolean"
+        },
+        "sourceAudioStreamIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "stabilization": {
+          "$ref": "#/$defs/stabilization"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Video",
+            "Audio",
+            "Image",
+            "Text",
+            "Color",
+            "Adjustment",
+            "Sequence"
+          ]
+        },
+        "mask": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/mask"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transform": {
+          "$ref": "#/$defs/transform"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeRemapPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/remapPoint"
+          }
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transition"
+          }
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keyframe"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "stabilization": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "smoothing": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "shakiness": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxZoomPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "originalAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "originalSourceIn": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "mask": {
+      "type": "object",
+      "properties": {
+        "centerX": {
+          "type": "number"
+        },
+        "centerY": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "feather": {
+          "type": "number"
+        },
+        "shape": {
+          "type": "string",
+          "enum": [
+            "Rectangle",
+            "Ellipse",
+            "Path"
+          ]
+        },
+        "invert": {
+          "type": "boolean"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "point": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transform": {
+      "type": "object",
+      "properties": {
+        "positionX": {
+          "type": "number"
+        },
+        "positionY": {
+          "type": "number"
+        },
+        "scaleX": {
+          "type": "number"
+        },
+        "scaleY": {
+          "type": "number"
+        },
+        "rotationDegrees": {
+          "type": "number"
+        },
+        "anchorX": {
+          "type": "number"
+        },
+        "anchorY": {
+          "type": "number"
+        },
+        "cropLeft": {
+          "type": "number"
+        },
+        "cropTop": {
+          "type": "number"
+        },
+        "cropRight": {
+          "type": "number"
+        },
+        "cropBottom": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "text": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "foregroundColor": {
+          "type": "string"
+        },
+        "outlineColor": {
+          "type": "string"
+        },
+        "shadowColor": {
+          "type": "string"
+        },
+        "glowColor": {
+          "type": "string"
+        },
+        "horizontalAlignment": {
+          "type": "string"
+        },
+        "verticalAlignment": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "backgroundPaddingX": {
+          "type": "number"
+        },
+        "backgroundPaddingY": {
+          "type": "number"
+        },
+        "backgroundCornerRadius": {
+          "type": "number"
+        },
+        "backgroundOpacity": {
+          "type": "number"
+        },
+        "horizontalInset": {
+          "type": "number"
+        },
+        "verticalInset": {
+          "type": "number"
+        },
+        "outlineThickness": {
+          "type": "number"
+        },
+        "shadowBlur": {
+          "type": "number"
+        },
+        "shadowOpacity": {
+          "type": "number"
+        },
+        "shadowOffsetX": {
+          "type": "number"
+        },
+        "shadowOffsetY": {
+          "type": "number"
+        },
+        "glowRadius": {
+          "type": "number"
+        },
+        "glowOpacity": {
+          "type": "number"
+        },
+        "letterSpacing": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "italic": {
+          "type": "boolean"
+        },
+        "underline": {
+          "type": "boolean"
+        },
+        "outlineEnabled": {
+          "type": "boolean"
+        },
+        "shadowEnabled": {
+          "type": "boolean"
+        },
+        "backgroundColor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/motion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "delaySeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondsPerCharacter": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "countSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeInSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeOutSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popOvershoot": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomEndScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creditsSpeed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decimals": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Left",
+                "Right",
+                "Top",
+                "Bottom"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDirection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "remapPoint": {
+      "type": "object",
+      "properties": {
+        "timeSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isEnabled": {
+          "type": "boolean"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "edge": {
+          "type": "string",
+          "enum": [
+            "In",
+            "Out"
+          ]
+        },
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 1e-06
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "keyframe": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "property": {
+          "type": "string"
+        },
+        "interpolation": {
+          "type": "string"
+        },
+        "timeSeconds": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "bezierOutTime": {
+          "type": "number"
+        },
+        "bezierOutValue": {
+          "type": "number"
+        },
+        "bezierInTime": {
+          "type": "number"
+        },
+        "bezierInValue": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1145,7 +2400,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 删除轨道及其片段，可撤销。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1207,7 +2462,789 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "trackId",
     "clip"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "blendMode": {
+          "type": "string"
+        },
+        "frameInterpolation": {
+          "type": "string"
+        },
+        "templateId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mediaAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nestedSequenceId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamGroupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamAngleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "linkGroupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detachedAudioClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detachedVideoClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamLocalStartSeconds": {
+          "type": "number"
+        },
+        "startSeconds": {
+          "type": "number"
+        },
+        "durationSeconds": {
+          "type": "number"
+        },
+        "sourceInSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        },
+        "volume": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "speedAdjustmentApplied": {
+          "type": "boolean"
+        },
+        "isMuted": {
+          "type": "boolean"
+        },
+        "isReversed": {
+          "type": "boolean"
+        },
+        "audioDetached": {
+          "type": "boolean"
+        },
+        "sourceAudioStreamIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "stabilization": {
+          "$ref": "#/$defs/stabilization"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Video",
+            "Audio",
+            "Image",
+            "Text",
+            "Color",
+            "Adjustment",
+            "Sequence"
+          ]
+        },
+        "mask": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/mask"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transform": {
+          "$ref": "#/$defs/transform"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeRemapPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/remapPoint"
+          }
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transition"
+          }
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keyframe"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "stabilization": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "smoothing": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "shakiness": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxZoomPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "originalAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "originalSourceIn": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "mask": {
+      "type": "object",
+      "properties": {
+        "centerX": {
+          "type": "number"
+        },
+        "centerY": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "feather": {
+          "type": "number"
+        },
+        "shape": {
+          "type": "string",
+          "enum": [
+            "Rectangle",
+            "Ellipse",
+            "Path"
+          ]
+        },
+        "invert": {
+          "type": "boolean"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "point": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transform": {
+      "type": "object",
+      "properties": {
+        "positionX": {
+          "type": "number"
+        },
+        "positionY": {
+          "type": "number"
+        },
+        "scaleX": {
+          "type": "number"
+        },
+        "scaleY": {
+          "type": "number"
+        },
+        "rotationDegrees": {
+          "type": "number"
+        },
+        "anchorX": {
+          "type": "number"
+        },
+        "anchorY": {
+          "type": "number"
+        },
+        "cropLeft": {
+          "type": "number"
+        },
+        "cropTop": {
+          "type": "number"
+        },
+        "cropRight": {
+          "type": "number"
+        },
+        "cropBottom": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "text": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "foregroundColor": {
+          "type": "string"
+        },
+        "outlineColor": {
+          "type": "string"
+        },
+        "shadowColor": {
+          "type": "string"
+        },
+        "glowColor": {
+          "type": "string"
+        },
+        "horizontalAlignment": {
+          "type": "string"
+        },
+        "verticalAlignment": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "backgroundPaddingX": {
+          "type": "number"
+        },
+        "backgroundPaddingY": {
+          "type": "number"
+        },
+        "backgroundCornerRadius": {
+          "type": "number"
+        },
+        "backgroundOpacity": {
+          "type": "number"
+        },
+        "horizontalInset": {
+          "type": "number"
+        },
+        "verticalInset": {
+          "type": "number"
+        },
+        "outlineThickness": {
+          "type": "number"
+        },
+        "shadowBlur": {
+          "type": "number"
+        },
+        "shadowOpacity": {
+          "type": "number"
+        },
+        "shadowOffsetX": {
+          "type": "number"
+        },
+        "shadowOffsetY": {
+          "type": "number"
+        },
+        "glowRadius": {
+          "type": "number"
+        },
+        "glowOpacity": {
+          "type": "number"
+        },
+        "letterSpacing": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "italic": {
+          "type": "boolean"
+        },
+        "underline": {
+          "type": "boolean"
+        },
+        "outlineEnabled": {
+          "type": "boolean"
+        },
+        "shadowEnabled": {
+          "type": "boolean"
+        },
+        "backgroundColor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/motion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "delaySeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondsPerCharacter": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "countSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeInSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeOutSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popOvershoot": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomEndScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creditsSpeed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decimals": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Left",
+                "Right",
+                "Top",
+                "Bottom"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDirection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "remapPoint": {
+      "type": "object",
+      "properties": {
+        "timeSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isEnabled": {
+          "type": "boolean"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "edge": {
+          "type": "string",
+          "enum": [
+            "In",
+            "Out"
+          ]
+        },
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 1e-06
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "keyframe": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "property": {
+          "type": "string"
+        },
+        "interpolation": {
+          "type": "string"
+        },
+        "timeSeconds": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "bezierOutTime": {
+          "type": "number"
+        },
+        "bezierOutValue": {
+          "type": "number"
+        },
+        "bezierInTime": {
+          "type": "number"
+        },
+        "bezierInValue": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1232,7 +3269,789 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "clipId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "blendMode": {
+          "type": "string"
+        },
+        "frameInterpolation": {
+          "type": "string"
+        },
+        "templateId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mediaAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nestedSequenceId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamGroupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamAngleId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "linkGroupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detachedAudioClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detachedVideoClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multicamLocalStartSeconds": {
+          "type": "number"
+        },
+        "startSeconds": {
+          "type": "number"
+        },
+        "durationSeconds": {
+          "type": "number"
+        },
+        "sourceInSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        },
+        "volume": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "speedAdjustmentApplied": {
+          "type": "boolean"
+        },
+        "isMuted": {
+          "type": "boolean"
+        },
+        "isReversed": {
+          "type": "boolean"
+        },
+        "audioDetached": {
+          "type": "boolean"
+        },
+        "sourceAudioStreamIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "stabilization": {
+          "$ref": "#/$defs/stabilization"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Video",
+            "Audio",
+            "Image",
+            "Text",
+            "Color",
+            "Adjustment",
+            "Sequence"
+          ]
+        },
+        "mask": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/mask"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transform": {
+          "$ref": "#/$defs/transform"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeRemapPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/remapPoint"
+          }
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transition"
+          }
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keyframe"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "stabilization": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "smoothing": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "shakiness": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxZoomPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "originalAssetId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "originalSourceIn": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "mask": {
+      "type": "object",
+      "properties": {
+        "centerX": {
+          "type": "number"
+        },
+        "centerY": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "feather": {
+          "type": "number"
+        },
+        "shape": {
+          "type": "string",
+          "enum": [
+            "Rectangle",
+            "Ellipse",
+            "Path"
+          ]
+        },
+        "invert": {
+          "type": "boolean"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "point": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transform": {
+      "type": "object",
+      "properties": {
+        "positionX": {
+          "type": "number"
+        },
+        "positionY": {
+          "type": "number"
+        },
+        "scaleX": {
+          "type": "number"
+        },
+        "scaleY": {
+          "type": "number"
+        },
+        "rotationDegrees": {
+          "type": "number"
+        },
+        "anchorX": {
+          "type": "number"
+        },
+        "anchorY": {
+          "type": "number"
+        },
+        "cropLeft": {
+          "type": "number"
+        },
+        "cropTop": {
+          "type": "number"
+        },
+        "cropRight": {
+          "type": "number"
+        },
+        "cropBottom": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "text": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "foregroundColor": {
+          "type": "string"
+        },
+        "outlineColor": {
+          "type": "string"
+        },
+        "shadowColor": {
+          "type": "string"
+        },
+        "glowColor": {
+          "type": "string"
+        },
+        "horizontalAlignment": {
+          "type": "string"
+        },
+        "verticalAlignment": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "backgroundPaddingX": {
+          "type": "number"
+        },
+        "backgroundPaddingY": {
+          "type": "number"
+        },
+        "backgroundCornerRadius": {
+          "type": "number"
+        },
+        "backgroundOpacity": {
+          "type": "number"
+        },
+        "horizontalInset": {
+          "type": "number"
+        },
+        "verticalInset": {
+          "type": "number"
+        },
+        "outlineThickness": {
+          "type": "number"
+        },
+        "shadowBlur": {
+          "type": "number"
+        },
+        "shadowOpacity": {
+          "type": "number"
+        },
+        "shadowOffsetX": {
+          "type": "number"
+        },
+        "shadowOffsetY": {
+          "type": "number"
+        },
+        "glowRadius": {
+          "type": "number"
+        },
+        "glowOpacity": {
+          "type": "number"
+        },
+        "letterSpacing": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "italic": {
+          "type": "boolean"
+        },
+        "underline": {
+          "type": "boolean"
+        },
+        "outlineEnabled": {
+          "type": "boolean"
+        },
+        "shadowEnabled": {
+          "type": "boolean"
+        },
+        "backgroundColor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/motion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "delaySeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondsPerCharacter": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "countSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeInSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeOutSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popOvershoot": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomEndScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creditsSpeed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decimals": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Left",
+                "Right",
+                "Top",
+                "Bottom"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDirection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "remapPoint": {
+      "type": "object",
+      "properties": {
+        "timeSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "effect": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isEnabled": {
+          "type": "boolean"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "edge": {
+          "type": "string",
+          "enum": [
+            "In",
+            "Out"
+          ]
+        },
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 1e-06
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "keyframe": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "property": {
+          "type": "string"
+        },
+        "interpolation": {
+          "type": "string"
+        },
+        "timeSeconds": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "bezierOutTime": {
+          "type": "number"
+        },
+        "bezierOutValue": {
+          "type": "number"
+        },
+        "bezierInTime": {
+          "type": "number"
+        },
+        "bezierInValue": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1240,7 +4059,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 删除一个或多个片段，可选波纹删除。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1317,7 +4136,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     },
     "durationSeconds": {
       "type": "number",
-      "minimum": 1E-06
+      "minimum": 1e-06
     },
     "sourceInSeconds": {
       "type": "number",
@@ -1379,7 +4198,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     },
     "durationSeconds": {
       "type": "number",
-      "minimum": 1E-06
+      "minimum": 1e-06
     },
     "replace": {
       "type": "boolean"
@@ -1502,7 +4321,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     },
     "durationSeconds": {
       "type": "number",
-      "minimum": 1E-06
+      "minimum": 1e-06
     },
     "content": {
       "type": "string"
@@ -1536,7 +4355,338 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "clipId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "text": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "foregroundColor": {
+          "type": "string"
+        },
+        "outlineColor": {
+          "type": "string"
+        },
+        "shadowColor": {
+          "type": "string"
+        },
+        "glowColor": {
+          "type": "string"
+        },
+        "horizontalAlignment": {
+          "type": "string"
+        },
+        "verticalAlignment": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "backgroundPaddingX": {
+          "type": "number"
+        },
+        "backgroundPaddingY": {
+          "type": "number"
+        },
+        "backgroundCornerRadius": {
+          "type": "number"
+        },
+        "backgroundOpacity": {
+          "type": "number"
+        },
+        "horizontalInset": {
+          "type": "number"
+        },
+        "verticalInset": {
+          "type": "number"
+        },
+        "outlineThickness": {
+          "type": "number"
+        },
+        "shadowBlur": {
+          "type": "number"
+        },
+        "shadowOpacity": {
+          "type": "number"
+        },
+        "shadowOffsetX": {
+          "type": "number"
+        },
+        "shadowOffsetY": {
+          "type": "number"
+        },
+        "glowRadius": {
+          "type": "number"
+        },
+        "glowOpacity": {
+          "type": "number"
+        },
+        "letterSpacing": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "italic": {
+          "type": "boolean"
+        },
+        "underline": {
+          "type": "boolean"
+        },
+        "outlineEnabled": {
+          "type": "boolean"
+        },
+        "shadowEnabled": {
+          "type": "boolean"
+        },
+        "backgroundColor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/motion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "delaySeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondsPerCharacter": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "countSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeInSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeOutSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popOvershoot": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomEndScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creditsSpeed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decimals": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Left",
+                "Right",
+                "Top",
+                "Bottom"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDirection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1561,7 +4711,224 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "clipId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "motion": {
+      "type": "object",
+      "properties": {
+        "delaySeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondsPerCharacter": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "countSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeInSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fadeOutSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "popOvershoot": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomStartScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zoomEndScale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creditsSpeed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decimals": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slideFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Left",
+                "Right",
+                "Top",
+                "Bottom"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scrollDirection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1586,7 +4953,53 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "clipId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "shape": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "widthFraction": {
+          "type": "number"
+        },
+        "heightFraction": {
+          "type": "number"
+        },
+        "fillColor": {
+          "type": "string"
+        },
+        "strokeColor": {
+          "type": "string"
+        },
+        "strokeFraction": {
+          "type": "number"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "point": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1680,7 +5093,32 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "effectId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "effect": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isEnabled": {
+          "type": "boolean"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1688,7 +5126,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 移除一个效果。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1762,7 +5200,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     },
     "durationSeconds": {
       "type": "number",
-      "minimum": 1E-06
+      "minimum": 1e-06
     },
     "parameters": {
       "type": "object",
@@ -1802,7 +5240,40 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "transitionId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "edge": {
+          "type": "string",
+          "enum": [
+            "In",
+            "Out"
+          ]
+        },
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 1e-06
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1810,7 +5281,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 移除指定转场。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1852,7 +5323,43 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "clipId",
     "keyframe"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "keyframe": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "property": {
+          "type": "string"
+        },
+        "interpolation": {
+          "type": "string"
+        },
+        "timeSeconds": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "bezierOutTime": {
+          "type": "number"
+        },
+        "bezierOutValue": {
+          "type": "number"
+        },
+        "bezierInTime": {
+          "type": "number"
+        },
+        "bezierInValue": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1860,7 +5367,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 删除关键帧。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -1913,7 +5420,22 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "clipId",
     "points"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "remapPoint": {
+      "type": "object",
+      "properties": {
+        "timeSeconds": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1969,7 +5491,32 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "markerId",
     "patch"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "marker": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "timeSeconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -1977,7 +5524,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 删除序列标记。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -2202,7 +5749,93 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
   "required": [
     "path"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "exportSettings": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 16384
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 16384
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "framesPerSecond": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 240
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "videoBitrateKbps": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "endSeconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "videoCodec": {
+          "type": "string",
+          "enum": [
+            "H264",
+            "HEVC",
+            "AV1"
+          ]
+        },
+        "bitDepth": {
+          "type": "integer",
+          "enum": [
+            8,
+            10
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -2580,6 +6213,305 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
   "required": [
     "patch"
   ],
+  "additionalProperties": false,
+  "$defs": {
+    "audio": {
+      "type": "object",
+      "properties": {
+        "normalizeEnabled": {
+          "type": "boolean"
+        },
+        "targetLufs": {
+          "type": "number",
+          "minimum": -36,
+          "maximum": -5
+        },
+        "targetTruePeakDb": {
+          "type": "number",
+          "minimum": -9,
+          "maximum": 0
+        },
+        "measuredLufs": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "measuredTruePeakDb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "normalizationGainDb": {
+          "type": "number",
+          "minimum": -60,
+          "maximum": 60
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "未分类",
+            "对白",
+            "音乐",
+            "音效",
+            "环境声"
+          ]
+        },
+        "gain": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "pan": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "channelMode": {
+          "type": "string",
+          "enum": [
+            "立体声",
+            "单声道",
+            "仅左声道",
+            "仅右声道"
+          ]
+        },
+        "highPassHz": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20000
+        },
+        "lowPassHz": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20000
+        },
+        "equalizerHz": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20000
+        },
+        "equalizerGainDb": {
+          "type": "number",
+          "minimum": -24,
+          "maximum": 24
+        },
+        "compressorEnabled": {
+          "type": "boolean"
+        },
+        "compressorThresholdDb": {
+          "type": "number",
+          "minimum": -60,
+          "maximum": 0
+        },
+        "compressorRatio": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "limiterEnabled": {
+          "type": "boolean"
+        },
+        "limiterCeiling": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 1
+        },
+        "noiseReductionEnabled": {
+          "type": "boolean"
+        },
+        "noiseReductionDb": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "echoEnabled": {
+          "type": "boolean"
+        },
+        "echoDelayMs": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "echoDecay": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.9
+        },
+        "autoDuckingEnabled": {
+          "type": "boolean"
+        },
+        "duckingGain": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 1
+        },
+        "duckingFadeSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+### `audio_source_streams`
+
+读取所选媒体的全部源音频流及当前索引；通过clip_update的sourceAudioStreamIndex切换。
+
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "clipId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "clipId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `audio_detach`
+
+从视频创建可独立编辑的音频片段，原视频停止发声，可撤销。
+
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "clipId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "clipId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `audio_attach`
+
+重新附着分离音频；音画必须对齐，保留音频处理参数。
+
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "clipId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "clipId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `audio_normalize`
+
+测量所选源音轨R128响度并应用目标LUFS与真峰值约束；支持变速曲线，静音会明确报错。
+
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "clipId": {
+      "type": "string"
+    },
+    "targetLufs": {
+      "type": "number",
+      "minimum": -36,
+      "maximum": -5
+    },
+    "truePeakDb": {
+      "type": "number",
+      "minimum": -9,
+      "maximum": 0
+    }
+  },
+  "required": [
+    "clipId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `video_stabilize`
+
+分析运动并生成无损防抖派生素材，自动接入预览、导出及项目保存；enabled=false恢复原视频。
+
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "clipId": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "smoothing": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "shakiness": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "maxZoomPercent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 50
+    }
+  },
+  "required": [
+    "clipId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `audio_meter_get`
+
+读取实际监听混音的左右峰值、削波保持与播放状态。
+
+元数据：只读。只读工具同样需要控制权（控制状态查询除外）。
+
+```json
+{
+  "type": "object",
+  "properties": {},
+  "required": [],
   "additionalProperties": false
 }
 ```
@@ -2620,7 +6552,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     },
     "targetDurationSeconds": {
       "type": "number",
-      "minimum": 1E-06
+      "minimum": 1e-06
     },
     "bpm": {
       "type": "number",
@@ -2720,7 +6652,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 按时间范围保留或删除内容，执行基于文本的纸面剪辑。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -2747,7 +6679,27 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "trackId",
     "ranges"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "timeRange": {
+      "type": "object",
+      "properties": {
+        "startSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "endSeconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "startSeconds",
+        "endSeconds"
+      ],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -2889,6 +6841,16 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
       "minimum": 0.25,
       "maximum": 4
     },
+    "previewViewZoom": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 4
+    },
+    "mediaViewIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
     "shortcuts": {
       "type": "object",
       "additionalProperties": {
@@ -2907,7 +6869,93 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     }
   },
   "required": [],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "workspace": {
+      "type": "object",
+      "properties": {
+        "upperRatio": {
+          "type": "number",
+          "minimum": 0.15,
+          "maximum": 0.85
+        },
+        "libraryRatio": {
+          "type": "number",
+          "minimum": 0.15,
+          "maximum": 0.85
+        },
+        "zoom": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "previewViewZoom": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 4
+        },
+        "mediaViewIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "shortcuts": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "snap": {
+          "type": "boolean"
+        },
+        "gpuMode": {
+          "type": "string",
+          "enum": [
+            "自动（GPU 优先）",
+            "CPU 软件渲染",
+            "NVIDIA CUDA",
+            "Intel QSV",
+            "AMD AMF"
+          ]
+        },
+        "autoSave": {
+          "type": "boolean"
+        },
+        "previewQualityIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "categoryIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "globalMute": {
+          "type": "boolean"
+        },
+        "soloTrackId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }
 ```
 
@@ -2966,7 +7014,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 为当前用户注册、设置默认、取消注册或打开 Windows 默认应用设置；使用系统白色文件图标。
 
-元数据：可改变状态或生成输出；涉及删除、覆盖或完整补丁。只读工具同样需要控制权（控制状态查询除外）。
+元数据：可改变状态或生成输出。只读工具同样需要控制权（控制状态查询除外）。
 
 ```json
 {
@@ -2991,807 +7039,44 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 ### 集中模型定义
 
-这些字段是实际可序列化模型或工具输入字段。这里只定义类型、选项和声明范围，业务逻辑还会校验引用、时间关系、文件和预设参数。修改模型时遵循补丁规则，不将所有可选字段强行补零。
-
-#### `analysisSettings`
+#### `transform`
 
 ```json
 {
   "type": "object",
   "properties": {
-    "startSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "durationSeconds": {
-      "type": "number",
-      "minimum": 1E-06,
-      "maximum": 600
-    },
-    "bins": {
-      "type": "integer",
-      "minimum": 8,
-      "maximum": 2000
-    },
-    "threshold": {
-      "type": "number",
-      "minimum": 0.01,
-      "maximum": 1
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `angle`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "sourceClip": {
-      "$ref": "#/$defs/clip"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `audio`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "category": {
-      "type": "string",
-      "enum": [
-        "未分类",
-        "对白",
-        "音乐",
-        "音效",
-        "环境声"
-      ]
-    },
-    "gain": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 4
-    },
-    "pan": {
-      "type": "number",
-      "minimum": -1,
-      "maximum": 1
-    },
-    "channelMode": {
-      "type": "string",
-      "enum": [
-        "立体声",
-        "单声道",
-        "仅左声道",
-        "仅右声道"
-      ]
-    },
-    "highPassHz": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 20000
-    },
-    "lowPassHz": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 20000
-    },
-    "equalizerHz": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 20000
-    },
-    "equalizerGainDb": {
-      "type": "number",
-      "minimum": -24,
-      "maximum": 24
-    },
-    "compressorEnabled": {
-      "type": "boolean"
-    },
-    "compressorThresholdDb": {
-      "type": "number",
-      "minimum": -60,
-      "maximum": 0
-    },
-    "compressorRatio": {
-      "type": "number",
-      "minimum": 1,
-      "maximum": 20
-    },
-    "limiterEnabled": {
-      "type": "boolean"
-    },
-    "limiterCeiling": {
-      "type": "number",
-      "minimum": 0.05,
-      "maximum": 1
-    },
-    "noiseReductionEnabled": {
-      "type": "boolean"
-    },
-    "noiseReductionDb": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 40
-    },
-    "echoEnabled": {
-      "type": "boolean"
-    },
-    "echoDelayMs": {
-      "type": "number",
-      "minimum": 1,
-      "maximum": 2000
-    },
-    "echoDecay": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 0.9
-    },
-    "autoDuckingEnabled": {
-      "type": "boolean"
-    },
-    "duckingGain": {
-      "type": "number",
-      "minimum": 0.05,
-      "maximum": 1
-    },
-    "duckingFadeSeconds": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 2
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `bin`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "parentId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `clip`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "blendMode": {
-      "type": "string"
-    },
-    "frameInterpolation": {
-      "type": "string"
-    },
-    "templateId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "mediaAssetId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "nestedSequenceId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "multicamGroupId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "multicamAngleId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "groupId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "linkGroupId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "color": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "multicamLocalStartSeconds": {
+    "positionX": {
       "type": "number"
     },
-    "startSeconds": {
+    "positionY": {
       "type": "number"
     },
-    "durationSeconds": {
+    "scaleX": {
       "type": "number"
     },
-    "sourceInSeconds": {
+    "scaleY": {
       "type": "number"
     },
-    "speed": {
+    "rotationDegrees": {
       "type": "number"
     },
-    "volume": {
+    "anchorX": {
       "type": "number"
     },
-    "opacity": {
+    "anchorY": {
       "type": "number"
     },
-    "speedAdjustmentApplied": {
-      "type": "boolean"
-    },
-    "isMuted": {
-      "type": "boolean"
-    },
-    "isReversed": {
-      "type": "boolean"
-    },
-    "kind": {
-      "type": "string",
-      "enum": [
-        "Video",
-        "Audio",
-        "Image",
-        "Text",
-        "Color",
-        "Adjustment",
-        "Sequence"
-      ]
-    },
-    "mask": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/mask"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "transform": {
-      "$ref": "#/$defs/transform"
-    },
-    "text": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/text"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "timeRemapPoints": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/remapPoint"
-      }
-    },
-    "effects": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/effect"
-      }
-    },
-    "transitions": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/transition"
-      }
-    },
-    "keyframes": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/keyframe"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `effect`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "presetId": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "isEnabled": {
-      "type": "boolean"
-    },
-    "parameters": {
-      "type": "object",
-      "additionalProperties": true
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `exportSettings`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "width": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 16,
-          "maximum": 16384
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "height": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 16,
-          "maximum": 16384
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "framesPerSecond": {
-      "anyOf": [
-        {
-          "type": "number",
-          "minimum": 0.1,
-          "maximum": 240
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "videoBitrateKbps": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 1
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "startSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "endSeconds": {
-      "anyOf": [
-        {
-          "type": "number",
-          "minimum": 0
-        },
-        {
-          "type": "null"
-        }
-      ]
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `keyframe`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "property": {
-      "type": "string"
-    },
-    "interpolation": {
-      "type": "string"
-    },
-    "timeSeconds": {
+    "cropLeft": {
       "type": "number"
     },
-    "value": {
+    "cropTop": {
       "type": "number"
     },
-    "bezierOutTime": {
+    "cropRight": {
       "type": "number"
     },
-    "bezierOutValue": {
+    "cropBottom": {
       "type": "number"
-    },
-    "bezierInTime": {
-      "type": "number"
-    },
-    "bezierInValue": {
-      "type": "number"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `marker`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "notes": {
-      "type": "string"
-    },
-    "color": {
-      "type": "string"
-    },
-    "timeSeconds": {
-      "type": "number",
-      "minimum": 0
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `mask`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "centerX": {
-      "type": "number"
-    },
-    "centerY": {
-      "type": "number"
-    },
-    "width": {
-      "type": "number"
-    },
-    "height": {
-      "type": "number"
-    },
-    "feather": {
-      "type": "number"
-    },
-    "shape": {
-      "type": "string",
-      "enum": [
-        "Rectangle",
-        "Ellipse",
-        "Path"
-      ]
-    },
-    "invert": {
-      "type": "boolean"
-    },
-    "points": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/point"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `media`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "sourcePath": {
-      "type": "string"
-    },
-    "labelColor": {
-      "type": "string"
-    },
-    "description": {
-      "type": "string"
-    },
-    "inputColorSpace": {
-      "type": "string"
-    },
-    "binId": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "proxyPath": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "videoCodec": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "audioCodec": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "fileModifiedUtc": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "kind": {
-      "type": "string",
-      "enum": [
-        "Video",
-        "Audio",
-        "Image"
-      ]
-    },
-    "durationSeconds": {
-      "anyOf": [
-        {
-          "type": "number",
-          "minimum": 0
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "width": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 1
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "height": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 1
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "framesPerSecond": {
-      "anyOf": [
-        {
-          "type": "number",
-          "minimum": 0
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "hasAudio": {
-      "type": "boolean"
-    },
-    "tags": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "metadata": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "string"
-      }
-    },
-    "sourceInSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "sourceOutSeconds": {
-      "anyOf": [
-        {
-          "type": "number",
-          "minimum": 0
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "markers": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/marker"
-      }
-    },
-    "useProxy": {
-      "type": "boolean"
-    },
-    "audioChannels": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 1
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "audioSampleRate": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 1
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "fileSizeBytes": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 0
-        },
-        {
-          "type": "null"
-        }
-      ]
     }
   },
   "required": [],
@@ -4019,319 +7304,6 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 }
 ```
 
-#### `multicam`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "syncMethod": {
-      "type": "string"
-    },
-    "durationSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "angles": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/angle"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `point`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "x": {
-      "type": "number"
-    },
-    "y": {
-      "type": "number"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `project`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "format": {
-      "type": "string"
-    },
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "createdUtc": {
-      "type": "string"
-    },
-    "modifiedUtc": {
-      "type": "string"
-    },
-    "version": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "sequence": {
-      "$ref": "#/$defs/sequence"
-    },
-    "sequences": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/sequenceWorkspace"
-      }
-    },
-    "bins": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/bin"
-      }
-    },
-    "media": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/media"
-      }
-    },
-    "subclips": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/subclip"
-      }
-    },
-    "multicamGroups": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/multicam"
-      }
-    },
-    "tracks": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/track"
-      }
-    },
-    "markers": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/marker"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `remapPoint`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "timeSeconds": {
-      "type": "number"
-    },
-    "speed": {
-      "type": "number"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `sequence`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "workingColorSpace": {
-      "type": "string"
-    },
-    "outputColorSpace": {
-      "type": "string"
-    },
-    "backgroundColor": {
-      "type": "string"
-    },
-    "width": {
-      "type": "integer",
-      "minimum": 16,
-      "maximum": 16384
-    },
-    "height": {
-      "type": "integer",
-      "minimum": 16,
-      "maximum": 16384
-    },
-    "framesPerSecond": {
-      "type": "number",
-      "minimum": 0.1,
-      "maximum": 240
-    },
-    "audioSampleRate": {
-      "type": "integer",
-      "minimum": 8000,
-      "maximum": 192000
-    },
-    "playheadSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "workAreaStartSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "workAreaEndSeconds": {
-      "anyOf": [
-        {
-          "type": "number",
-          "minimum": 0
-        },
-        {
-          "type": "null"
-        }
-      ]
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `sequenceWorkspace`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "sequence": {
-      "$ref": "#/$defs/sequence"
-    },
-    "tracks": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/track"
-      }
-    },
-    "markers": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/marker"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `shape`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "kind": {
-      "type": "string"
-    },
-    "widthFraction": {
-      "type": "number"
-    },
-    "heightFraction": {
-      "type": "number"
-    },
-    "fillColor": {
-      "type": "string"
-    },
-    "strokeColor": {
-      "type": "string"
-    },
-    "strokeFraction": {
-      "type": "number"
-    },
-    "points": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/point"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `subclip`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string"
-    },
-    "name": {
-      "type": "string"
-    },
-    "parentAssetId": {
-      "type": "string"
-    },
-    "notes": {
-      "type": "string"
-    },
-    "createdUtc": {
-      "type": "string"
-    },
-    "inSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "outSeconds": {
-      "type": "number",
-      "minimum": 0
-    },
-    "tags": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
 #### `text`
 
 ```json
@@ -4451,25 +7423,445 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 }
 ```
 
-#### `timeRange`
+#### `point`
 
 ```json
 {
   "type": "object",
   "properties": {
-    "startSeconds": {
-      "type": "number",
-      "minimum": 0
+    "x": {
+      "type": "number"
     },
-    "endSeconds": {
-      "type": "number",
-      "minimum": 0
+    "y": {
+      "type": "number"
     }
   },
-  "required": [
-    "startSeconds",
-    "endSeconds"
-  ],
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `mask`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "centerX": {
+      "type": "number"
+    },
+    "centerY": {
+      "type": "number"
+    },
+    "width": {
+      "type": "number"
+    },
+    "height": {
+      "type": "number"
+    },
+    "feather": {
+      "type": "number"
+    },
+    "shape": {
+      "type": "string",
+      "enum": [
+        "Rectangle",
+        "Ellipse",
+        "Path"
+      ]
+    },
+    "invert": {
+      "type": "boolean"
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/point"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `shape`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string"
+    },
+    "widthFraction": {
+      "type": "number"
+    },
+    "heightFraction": {
+      "type": "number"
+    },
+    "fillColor": {
+      "type": "string"
+    },
+    "strokeColor": {
+      "type": "string"
+    },
+    "strokeFraction": {
+      "type": "number"
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/point"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `effect`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "presetId": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "isEnabled": {
+      "type": "boolean"
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `transition`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "presetId": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "edge": {
+      "type": "string",
+      "enum": [
+        "In",
+        "Out"
+      ]
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 1e-06
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `keyframe`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "property": {
+      "type": "string"
+    },
+    "interpolation": {
+      "type": "string"
+    },
+    "timeSeconds": {
+      "type": "number"
+    },
+    "value": {
+      "type": "number"
+    },
+    "bezierOutTime": {
+      "type": "number"
+    },
+    "bezierOutValue": {
+      "type": "number"
+    },
+    "bezierInTime": {
+      "type": "number"
+    },
+    "bezierInValue": {
+      "type": "number"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `remapPoint`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "timeSeconds": {
+      "type": "number"
+    },
+    "speed": {
+      "type": "number"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `clip`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "blendMode": {
+      "type": "string"
+    },
+    "frameInterpolation": {
+      "type": "string"
+    },
+    "templateId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mediaAssetId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nestedSequenceId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "multicamGroupId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "multicamAngleId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "groupId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "linkGroupId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "color": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "detachedAudioClipId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "detachedVideoClipId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "multicamLocalStartSeconds": {
+      "type": "number"
+    },
+    "startSeconds": {
+      "type": "number"
+    },
+    "durationSeconds": {
+      "type": "number"
+    },
+    "sourceInSeconds": {
+      "type": "number"
+    },
+    "speed": {
+      "type": "number"
+    },
+    "volume": {
+      "type": "number"
+    },
+    "opacity": {
+      "type": "number"
+    },
+    "speedAdjustmentApplied": {
+      "type": "boolean"
+    },
+    "isMuted": {
+      "type": "boolean"
+    },
+    "isReversed": {
+      "type": "boolean"
+    },
+    "audioDetached": {
+      "type": "boolean"
+    },
+    "sourceAudioStreamIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 63
+    },
+    "stabilization": {
+      "$ref": "#/$defs/stabilization"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "Video",
+        "Audio",
+        "Image",
+        "Text",
+        "Color",
+        "Adjustment",
+        "Sequence"
+      ]
+    },
+    "mask": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/mask"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "transform": {
+      "$ref": "#/$defs/transform"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timeRemapPoints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/remapPoint"
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/effect"
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/transition"
+      }
+    },
+    "keyframes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/keyframe"
+      }
+    }
+  },
+  "required": [],
   "additionalProperties": false
 }
 ```
@@ -4524,52 +7916,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 }
 ```
 
-#### `transform`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "positionX": {
-      "type": "number"
-    },
-    "positionY": {
-      "type": "number"
-    },
-    "scaleX": {
-      "type": "number"
-    },
-    "scaleY": {
-      "type": "number"
-    },
-    "rotationDegrees": {
-      "type": "number"
-    },
-    "anchorX": {
-      "type": "number"
-    },
-    "anchorY": {
-      "type": "number"
-    },
-    "cropLeft": {
-      "type": "number"
-    },
-    "cropTop": {
-      "type": "number"
-    },
-    "cropRight": {
-      "type": "number"
-    },
-    "cropBottom": {
-      "type": "number"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-#### `transition`
+#### `marker`
 
 ```json
 {
@@ -4578,26 +7925,641 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "id": {
       "type": "string"
     },
-    "presetId": {
+    "name": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "color": {
+      "type": "string"
+    },
+    "timeSeconds": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `sequence`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
       "type": "string"
     },
     "name": {
       "type": "string"
     },
-    "edge": {
+    "workingColorSpace": {
+      "type": "string"
+    },
+    "outputColorSpace": {
+      "type": "string"
+    },
+    "backgroundColor": {
+      "type": "string"
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 16,
+      "maximum": 16384
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 16,
+      "maximum": 16384
+    },
+    "framesPerSecond": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 240
+    },
+    "audioSampleRate": {
+      "type": "integer",
+      "minimum": 8000,
+      "maximum": 192000
+    },
+    "magneticTimeline": {
+      "type": "boolean"
+    },
+    "playheadSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "workAreaStartSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "workAreaEndSeconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `media`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "sourcePath": {
+      "type": "string"
+    },
+    "labelColor": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "inputColorSpace": {
+      "type": "string"
+    },
+    "binId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proxyPath": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "videoCodec": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "audioCodec": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fileModifiedUtc": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
       "type": "string",
       "enum": [
-        "In",
-        "Out"
+        "Video",
+        "Audio",
+        "Image"
       ]
     },
     "durationSeconds": {
-      "type": "number",
-      "minimum": 1E-06
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
-    "parameters": {
+    "width": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "height": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "framesPerSecond": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "hasAudio": {
+      "type": "boolean"
+    },
+    "audioStreams": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceAudioStream"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metadata": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "sourceInSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sourceOutSeconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/marker"
+      }
+    },
+    "useProxy": {
+      "type": "boolean"
+    },
+    "audioChannels": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "audioSampleRate": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fileSizeBytes": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `bin`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "parentId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `subclip`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "parentAssetId": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "createdUtc": {
+      "type": "string"
+    },
+    "inSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "outSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `angle`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "sourceClip": {
+      "$ref": "#/$defs/clip"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `multicam`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "syncMethod": {
+      "type": "string"
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "angles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/angle"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `sequenceWorkspace`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sequence": {
+      "$ref": "#/$defs/sequence"
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/marker"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `project`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "format": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "createdUtc": {
+      "type": "string"
+    },
+    "modifiedUtc": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sequence": {
+      "$ref": "#/$defs/sequence"
+    },
+    "sequences": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sequenceWorkspace"
+      }
+    },
+    "bins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bin"
+      }
+    },
+    "media": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/media"
+      }
+    },
+    "subclips": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/subclip"
+      }
+    },
+    "multicamGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/multicam"
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/marker"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `exportSettings`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "width": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "height": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "framesPerSecond": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 240
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "videoBitrateKbps": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "startSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "endSeconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "videoCodec": {
+      "type": "string",
+      "enum": [
+        "H264",
+        "HEVC",
+        "AV1"
+      ]
+    },
+    "bitDepth": {
+      "type": "integer",
+      "enum": [
+        8,
+        10
+      ]
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `analysisSettings`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "startSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 1e-06,
+      "maximum": 600
+    },
+    "bins": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 2000
+    },
+    "threshold": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 1
     }
   },
   "required": [],
@@ -4625,6 +8587,16 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
       "type": "number",
       "minimum": 0.25,
       "maximum": 4
+    },
+    "previewViewZoom": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 4
+    },
+    "mediaViewIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
     },
     "shortcuts": {
       "type": "object",
@@ -4663,7 +8635,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "categoryIndex": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 5
+      "maximum": 4
     },
     "globalMute": {
       "type": "boolean"
@@ -4684,3 +8656,282 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 }
 ```
 
+#### `sourceAudioStream`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "streamIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "codec": {
+      "type": "string"
+    },
+    "channels": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sampleRate": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "language": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `stabilization`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "smoothing": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "shakiness": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "maxZoomPercent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 50
+    },
+    "originalAssetId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "originalSourceIn": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `audio`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "normalizeEnabled": {
+      "type": "boolean"
+    },
+    "targetLufs": {
+      "type": "number",
+      "minimum": -36,
+      "maximum": -5
+    },
+    "targetTruePeakDb": {
+      "type": "number",
+      "minimum": -9,
+      "maximum": 0
+    },
+    "measuredLufs": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "measuredTruePeakDb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "normalizationGainDb": {
+      "type": "number",
+      "minimum": -60,
+      "maximum": 60
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "未分类",
+        "对白",
+        "音乐",
+        "音效",
+        "环境声"
+      ]
+    },
+    "gain": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 4
+    },
+    "pan": {
+      "type": "number",
+      "minimum": -1,
+      "maximum": 1
+    },
+    "channelMode": {
+      "type": "string",
+      "enum": [
+        "立体声",
+        "单声道",
+        "仅左声道",
+        "仅右声道"
+      ]
+    },
+    "highPassHz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 20000
+    },
+    "lowPassHz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 20000
+    },
+    "equalizerHz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 20000
+    },
+    "equalizerGainDb": {
+      "type": "number",
+      "minimum": -24,
+      "maximum": 24
+    },
+    "compressorEnabled": {
+      "type": "boolean"
+    },
+    "compressorThresholdDb": {
+      "type": "number",
+      "minimum": -60,
+      "maximum": 0
+    },
+    "compressorRatio": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "limiterEnabled": {
+      "type": "boolean"
+    },
+    "limiterCeiling": {
+      "type": "number",
+      "minimum": 0.05,
+      "maximum": 1
+    },
+    "noiseReductionEnabled": {
+      "type": "boolean"
+    },
+    "noiseReductionDb": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 40
+    },
+    "echoEnabled": {
+      "type": "boolean"
+    },
+    "echoDelayMs": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 2000
+    },
+    "echoDecay": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.9
+    },
+    "autoDuckingEnabled": {
+      "type": "boolean"
+    },
+    "duckingGain": {
+      "type": "number",
+      "minimum": 0.05,
+      "maximum": 1
+    },
+    "duckingFadeSeconds": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
+```
+
+#### `timeRange`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "startSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "endSeconds": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "startSeconds",
+    "endSeconds"
+  ],
+  "additionalProperties": false
+}
+```
+
+## 视图与预览缓存（新增）
+
+- `workspace_set` 的 `previewViewZoom`：0.1–4，只改变预览视图，不改变素材变换或导出；回位为 1。`mediaViewIndex`：0 列表、1 小缩略图、2 大缩略图。
+- 三分区可拖动分隔条；MCP 用 `upperRatio`、`libraryRatio` 设置比例。效果分类统一包含滤镜与特效，目录预设 ID 保持不变；分类索引为媒体 0、文字 1、效果 2、转场 3、贴纸 4。
+- 停止编辑约 2 秒后自动在本机生成整个工程的分段预览并拼接；编辑后按内容指纹复用未受影响段。缓存仅用于正向播放，正式导出仍使用项目原始数据；不要把预览缓存作为交付视频。取消或缓存失败不影响保存、普通预览或导出。
+- 预览缩放与缩略图视图状态可经 `workspace_get` 读取，使用已有 `workspace_set` 操作即可，不需要启动任何新服务。
+
+
+## Concat 对照新增工作流
+
+- 源文件音轨：先 `audio_source_streams({clipId})` 获取实际流列表。`index` 是 FFmpeg 音频序号，`streamIndex` 是容器全局索引，不能混用。通过 `clip_update({clipId,patch:{sourceAudioStreamIndex:index}})` 切换，波形、监听和导出自动刷新。
+- 分离 / 附着：`audio_detach({clipId})` 从视频建立独立声音对象，原视频不重复发声。`audio_attach({clipId})` 可以传原视频或分离声音 ID；分别修剪后若音画不对齐会明确报错，不会丢弃用户改动。
+- 归一化：`audio_normalize({clipId,targetLufs:-14,truePeakDb:-1})` 真实测量所选流及片段区间，并保存音频参数；真峰值限制优先，可能无法完全达到目标 LUFS。支持速度曲线。使用音频参数更新的 normalizeEnabled=false 关闭；不要拿旧的简化响度分析替代真实归一化。
+- 防抖：`video_stabilize({clipId,enabled:true,smoothing:30,shakiness:5,maxZoomPercent:10})` 两次真实运动处理，建立可打包的无损派生媒体。`enabled:false` 恢复原媒体。期间应等待工具返回，勿并发修改项目使分析结果失效；源文件不改写。
+- 电平：`audio_meter_get({})` 读取真实监听 PCM 的声道峰值、削波保持及播放状态。它不是 LUFS 计量器。
+- 磁性模式：`sequence_update({patch:{magneticTimeline:true}})` 持续在编辑提交后闭合可移动片段的空隙；锁定、已有重叠和跨轨关联对象保留位置。关闭允许空隙。磁性模式与鼠标吸附分别控制。
+- 编码：`export_start` 的 settings 新增 videoCodec（H264、HEVC、AV1）和 bitDepth（8 或 10）；H264 当前只提供8位。10位为SDR高精度管线，不代表HDR；遇到仅支持8位的效果会明确拒绝该10位组合，可选8位或关闭对应效果后重试。
+- 转场：有源余量时前镜头持续解码，与后镜头一起运动。转场区间在切点后，保持时间线时长；没有余量、未知源时长或前段使用速度曲线时回退尾帧保持，参数页明确提示。不要向用户把回退描述为连续运动双源转场。
+- 快捷键：workspace_get 返回可重绑命令列表；workspace_set 的 shortcuts 支持新增逐帧、波纹、吸附、磁性和播放动作。支持单键；文本输入时不执行剪辑命令，同一自定义手势不能重复分配。
+
+仍使用已连接的 MCP 工具与现有 .NET 服务。新增功能不需要编写 Node 桥接、启动HTTP服务器或操作用户界面。

@@ -1,8 +1,9 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using TANGERINE_VideoEditor.Project;
 
 namespace TANGERINE_VideoEditor.Editor;
 
@@ -27,7 +28,7 @@ public static class MediaMetadataProbe
         process.StartInfo.ArgumentList.Add("-v");
         process.StartInfo.ArgumentList.Add("error");
         process.StartInfo.ArgumentList.Add("-show_entries");
-        process.StartInfo.ArgumentList.Add("format=duration,size,tags:stream=codec_type,codec_name,width,height,r_frame_rate,channels,sample_rate,tags");
+        process.StartInfo.ArgumentList.Add("format=duration,size:format_tags:stream=index,codec_type,codec_name,width,height,r_frame_rate,channels,sample_rate:stream_tags");
         process.StartInfo.ArgumentList.Add("-of");
         process.StartInfo.ArgumentList.Add("json");
         process.StartInfo.ArgumentList.Add(path);
@@ -53,6 +54,7 @@ public static class MediaMetadataProbe
             string? audioCodec = null;
             int? audioChannels = null;
             int? audioSampleRate = null;
+            var audioStreams = new List<SourceAudioStream>();
             long? fileSize = null;
             var tags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (root.TryGetProperty("format", out JsonElement format) &&
@@ -76,6 +78,17 @@ public static class MediaMetadataProbe
                     if (kind == "audio")
                     {
                         hasAudio = true;
+                        var audio = new SourceAudioStream { Index = audioStreams.Count,
+                            StreamIndex = stream.TryGetProperty("index", out var si) ? si.GetInt32() : audioStreams.Count,
+                            Codec = stream.TryGetProperty("codec_name", out var ac) ? ac.GetString() ?? "" : "",
+                            Channels = stream.TryGetProperty("channels", out var ch) ? ch.GetInt32() : 0,
+                            SampleRate = stream.TryGetProperty("sample_rate", out var sr) && int.TryParse(sr.GetString(), out int parsedRate) ? parsedRate : 0 };
+                        if (stream.TryGetProperty("tags", out var st))
+                        {
+                            audio.Language = st.TryGetProperty("language", out var lang) ? lang.GetString() ?? "" : "";
+                            audio.Title = st.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "";
+                        }
+                        audioStreams.Add(audio);
                         audioCodec ??= stream.TryGetProperty("codec_name", out JsonElement audioCodecValue) ? audioCodecValue.GetString() : null;
                         if (audioChannels is null && stream.TryGetProperty("channels", out JsonElement channels) && channels.TryGetInt32(out int channelCount))
                             audioChannels = channelCount;
@@ -98,7 +111,7 @@ public static class MediaMetadataProbe
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             { Debug.WriteLine($"MED-METADATA-DATE: {exception}"); }
             return new MediaMetadata(duration, width, height, frameRate, hasAudio,
-                videoCodec, audioCodec, audioChannels, audioSampleRate, fileSize, modifiedUtc, tags);
+                videoCodec, audioCodec, audioChannels, audioSampleRate, fileSize, modifiedUtc, tags, audioStreams);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -143,4 +156,4 @@ public static class MediaMetadataProbe
 public sealed record MediaMetadata(double? DurationSeconds, int? Width, int? Height, double? FramesPerSecond, bool HasAudio,
     string? VideoCodec, string? AudioCodec, int? AudioChannels, int? AudioSampleRate, long? FileSizeBytes,
     DateTimeOffset? FileModifiedUtc,
-    IReadOnlyDictionary<string, string> Tags);
+    IReadOnlyDictionary<string, string> Tags, IReadOnlyList<SourceAudioStream>? AudioStreams = null);

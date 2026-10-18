@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Input;
 using TANGERINE_VideoEditor.Project;
 
@@ -119,6 +119,10 @@ public partial class MainWindow : Window
         // click or text input. The editor reserves this key for transport.
         PreviewKeyDown += (_, args) =>
         {
+            if (IsTextInputFocused()) return;
+            Key key = args.Key == Key.System ? args.SystemKey : args.Key;
+            var custom = _customShortcutBindings.Values.OfType<KeyBinding>().FirstOrDefault(binding => binding.Key == key && binding.Modifiers == Keyboard.Modifiers);
+            if (custom is not null) { custom.Command.Execute(custom.CommandParameter); args.Handled = true; return; }
             if (args.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None) return;
             TogglePlayback();
             args.Handled = true;

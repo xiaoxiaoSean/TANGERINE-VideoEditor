@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -200,6 +200,7 @@ public partial class MainWindow
             panel.Children.Add(new TextBlock { Text = "只有图片和视频支持画面变换及裁切。", Foreground = Brush("#C5CAD4"), TextWrapping = TextWrapping.Wrap });
             return panel;
         }
+        AddStabilizationControls(panel, clip);
         double editTime = _project.Sequence.PlayheadSeconds;
         ClipTransform transform = clip.Transform;
         TextBox positionX = AddToolTextBox(panel, "位置 X（像素）", ClipAnimation.Evaluate(clip, "PositionX", editTime));
@@ -267,7 +268,7 @@ public partial class MainWindow
                 };
             }
         }
-        AddToolButton(panel, "打开滤镜 Tab", () => { CategoryList.SelectedIndex = Array.IndexOf(_categories, "滤镜"); });
+        AddToolButton(panel, "打开效果 Tab", () => { CategoryList.SelectedIndex = Array.IndexOf(_categories, "效果"); });
         return panel;
     }
 
@@ -282,6 +283,7 @@ public partial class MainWindow
             panel.Children.Add(new TextBlock { Text = $"音频设置无法读取：{exception.Message}", Foreground = Brushes.OrangeRed, TextWrapping = TextWrapping.Wrap });
             return panel;
         }
+        AddAudioWorkflowControls(panel, clip);
         TextBox volume = AddToolTextBox(panel, "片段音量（0–400%）", clip.Volume * 100);
         TextBox gain = AddToolTextBox(panel, "额外增益（0–400%）", settings.Gain * 100);
         TextBox pan = AddToolTextBox(panel, "声像（-100 左 / 100 右）", settings.Pan * 100);
@@ -309,6 +311,9 @@ public partial class MainWindow
                 SaveUndoState(); clip.Volume = volumeValue / 100; settings.Gain = gainValue / 100; settings.Pan = panValue / 100;
                 settings.EqualizerHz = eqFrequency; settings.EqualizerGainDb = eqDb; settings.HighPassHz = high; settings.LowPassHz = low;
                 settings.CompressorEnabled = compressor.IsChecked == true; settings.CompressorThresholdDb = thresholdValue; settings.CompressorRatio = ratioValue;
+                var latest = AudioSettings.FromClip(clip);
+                settings.NormalizeEnabled = latest.NormalizeEnabled; settings.TargetLufs = latest.TargetLufs; settings.TargetTruePeakDb = latest.TargetTruePeakDb;
+                settings.NormalizationGainDb = latest.NormalizationGainDb; settings.MeasuredLufs = latest.MeasuredLufs; settings.MeasuredTruePeakDb = latest.MeasuredTruePeakDb;
                 settings.Validate(); settings.Save(clip); MarkProjectDirty(); RefreshTimeline(); SeekPreview(_project.Sequence.PlayheadSeconds);
                 StatusText.Text = "均衡器 / 音量已即时应用"; return true;
             }

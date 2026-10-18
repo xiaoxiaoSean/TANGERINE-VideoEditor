@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using TANGERINE_VideoEditor.Project;
 
@@ -30,6 +30,13 @@ public sealed class AudioSettings
 
     public string Category { get; set; } = "未分类";
     public double Gain { get; set; } = 1;
+    public bool NormalizeEnabled { get; set; }
+    public double TargetLufs { get; set; } = -14;
+    public double TargetTruePeakDb { get; set; } = -1;
+    public double? MeasuredLufs { get; set; }
+    public double? MeasuredTruePeakDb { get; set; }
+    public double NormalizationGainDb { get; set; }
+
     public double Pan { get; set; }
     public string ChannelMode { get; set; } = "立体声";
     public double HighPassHz { get; set; }
@@ -88,6 +95,7 @@ public sealed class AudioSettings
         if (Category is null || Category.Length > 64 ||
             Category is not ("未分类" or "对白" or "音乐" or "音效" or "环境声") ||
             ChannelMode is not ("立体声" or "单声道" or "仅左声道" or "仅右声道") ||
+            !InRange(TargetLufs, -36, -5) || !InRange(TargetTruePeakDb, -9, 0) || !InRange(NormalizationGainDb, -60, 60) ||
             !InRange(Gain, 0, 4) || !InRange(Pan, -1, 1) ||
             !InRange(HighPassHz, 0, 20000) || !InRange(LowPassHz, 0, 20000) ||
             !InRange(EqualizerHz, 0, 20000) || !InRange(EqualizerGainDb, -24, 24) ||
@@ -171,6 +179,12 @@ public static class AudioProcessing
         if (settings.EchoEnabled)
             filters.Add($"aecho=0.8:0.65:{Number(settings.EchoDelayMs)}:{Number(settings.EchoDecay)}");
         if (settings.LimiterEnabled) filters.Add($"alimiter=limit={Number(settings.LimiterCeiling)}");
+        if (settings.NormalizeEnabled)
+        {
+            filters.Add($"volume={Number(settings.NormalizationGainDb)}dB");
+            // Oversample the limiter so intersample peaks are constrained too.
+            filters.Add($"aresample=192000,apad=pad_dur=0.005,alimiter=limit={Number(Math.Pow(10, settings.TargetTruePeakDb / 20))}:level=0,atrim=start=0.005,asetpts=PTS-STARTPTS,aresample=48000");
+        }
         return "," + string.Join(',', filters);
     }
 

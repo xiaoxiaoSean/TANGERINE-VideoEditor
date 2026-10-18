@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using TANGERINE_VideoEditor.Editor;
@@ -46,6 +46,7 @@ public partial class MainWindow
 
     private void ScheduleRenderedPreviewFrame(TimelineClip? clip)
     {
+        if (_catalogPreviewActive || _catalogPreviewPending) return;
         double time = _project.Sequence.PlayheadSeconds;
         TimelineClip[] activeVisuals = _project.Tracks.Where(track => !track.IsHidden && track.Kind != TrackKind.Audio)
             .SelectMany(track => track.Clips)
@@ -108,8 +109,11 @@ public partial class MainWindow
         // used for interactive frames.
         System.Windows.Media.Matrix device = PresentationSource.FromVisual(PreviewVisualLayer)
             ?.CompositionTarget?.TransformToDevice ?? System.Windows.Media.Matrix.Identity;
-        int width = Math.Clamp((int)Math.Round(canvasWidth * device.M11 * PreviewResolutionRatio), 1, 4096);
-        int height = Math.Clamp((int)Math.Round(canvasHeight * device.M22 * PreviewResolutionRatio), 1, 4096);
+        double requestedWidth = canvasWidth * device.M11 * Math.Max(1, PreviewZoomSlider.Value) * PreviewResolutionRatio;
+        double requestedHeight = canvasHeight * device.M22 * Math.Max(1, PreviewZoomSlider.Value) * PreviewResolutionRatio;
+        double limit = Math.Min(1, 4096 / Math.Max(requestedWidth, requestedHeight));
+        int width = Math.Max(1, (int)Math.Round(requestedWidth * limit));
+        int height = Math.Max(1, (int)Math.Round(requestedHeight * limit));
         // Frames within the same sequence tick have identical source content.
         // A stable frame key also avoids restarting an expensive FFmpeg graph
         // for every 33 ms UI timer tick on a 24/25 fps sequence.
@@ -210,7 +214,7 @@ public partial class MainWindow
                 : await ClipFrameRenderer.RenderClipFrameAsync(clip!, asset!,
                     _project.Sequence, seconds, width, height, cancellationToken,
                     previewGpuMode: _previewGpuMode);
-            if (cancellationToken.IsCancellationRequested || key != _renderedPreviewKey ||
+            if (_catalogPreviewActive || _catalogPreviewPending || cancellationToken.IsCancellationRequested || key != _renderedPreviewKey ||
                 _renderedPreviewGeneration != _projectGeneration ||
                 !composite && _activePreviewVisualClip?.Id != clip?.Id) return;
             PreviewRenderedFrame.Source = bitmap;

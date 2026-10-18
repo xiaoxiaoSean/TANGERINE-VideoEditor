@@ -255,18 +255,18 @@ public partial class MainWindow
             if (_vertexDragActive) { FinishShapeVertexDrag(); return; }
             FinishMediaDrag();
         };
-        PreviewOverlay.PreviewMouseWheel += (_, args) =>
+        PreviewViewport.PreviewMouseWheel += (_, args) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 ||
                 _vertexDragActive || _draggingMediaClip is not null) return;
-            if (!TryScaleSelectedGraphicWithWheel(args.GetPosition(PreviewOverlay), args.Delta)) return;
+            PreviewZoomSlider.Value = Math.Clamp(PreviewZoomSlider.Value * Math.Pow(1.12, args.Delta / 120.0), .1, 4);
             args.Handled = true;
         };
     }
 
     private void SeekPreview(double seconds)
     {
-        if (_catalogPreviewActive) return;
+        if (_catalogPreviewActive || _catalogPreviewPending) return;
         _project.Sequence.PlayheadSeconds = Math.Max(0, seconds);
         if (_isPlaying && !_playbackTickSeeking)
         {
@@ -284,6 +284,7 @@ public partial class MainWindow
             DrawTextOverlay();
             return;
         }
+        if (TryShowCachedPreview(_project.Sequence.PlayheadSeconds)) return;
         // Track order follows the UI from top to bottom; the compositor
         // paints bottom tracks first. Later-starting clips on the same track
         // are painted last, so choose the same topmost source here.
@@ -567,7 +568,7 @@ public partial class MainWindow
 
     private void DrawTextOverlay()
     {
-        if (PreviewOverlay is null) return;
+        if (PreviewOverlay is null || _catalogPreviewActive || _catalogPreviewPending) return;
         if (_draggingTitleClip is not null) return;
         string layoutKey = $"{_projectGeneration}:{_projectRevision}:" +
             $"{PreviewOverlay.ActualWidth:0.0}:{PreviewOverlay.ActualHeight:0.0}:{_selectedClip?.Id}:{_activePreviewVisualClip?.Id}:{_mediaCropMode}";
@@ -1158,7 +1159,7 @@ public partial class MainWindow
             _playbackTimer.Start();
             UpdateAudioPreview(_project.Sequence.PlayheadSeconds);
         }
-        else { _playbackTimer.Stop(); _playbackClock.Stop(); PreviewMediaElement.Pause(); PauseAudioPreview(); }
+        else { _playbackTimer.Stop(); _playbackClock.Stop(); PreviewMediaElement.Pause(); PauseAudioPreview(); StopCachedPreview(); SeekPreview(_project.Sequence.PlayheadSeconds); }
     }
 
     private void SetPlaybackDirection(int direction)

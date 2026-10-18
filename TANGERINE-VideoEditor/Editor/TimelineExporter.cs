@@ -32,7 +32,7 @@ public sealed record VideoExportSettings(
     double? FramesPerSecond = null,
     int? VideoBitrateKbps = null,
     double StartSeconds = 0,
-    double? EndSeconds = null);
+    double? EndSeconds = null, string VideoCodec = "H264", int BitDepth = 8);
 
 /// <summary>
 /// Builds an FFmpeg filter graph from the versioned timeline model. Each clip is
@@ -90,6 +90,14 @@ public static class TimelineExporter
             !double.IsFinite(outputFps) || outputFps < 1 || outputFps > 120 ||
             settings.VideoBitrateKbps is < 250 or > 200000)
             throw new ExportException(ExportStageCode.Validate, "导出范围、画幅、帧率或码率无效。");
+        if (settings.VideoCodec is not ("H264" or "HEVC" or "AV1") || settings.BitDepth is not (8 or 10) ||
+            settings.VideoCodec == "H264" && settings.BitDepth == 10)
+            throw new ExportException(ExportStageCode.Validate, "编码格式应为 H264/HEVC/AV1；10位请选择HEVC或AV1。");
+        // Some legacy FFmpeg filters only accept 8-bit input. Never silently
+        // quantize an advertised ten-bit render through one of those filters.
+        string[] precisionSafe = ["effect.blur", "effect.sharpen", "effect.motion-blur", "effect.mirror", "effect.curves", "effect.wheels", "effect.temperature", "effect.tint", "effect.lut", "effect.sepia", "effect.invert"];
+        if (settings.BitDepth == 10 && project.Tracks.SelectMany(t => t.Clips).SelectMany(c => c.Effects).Any(e => e.IsEnabled && !precisionSafe.Contains(e.PresetId)))
+            throw new ExportException(ExportStageCode.Validate, "当前效果尚未通过10位处理精度验证。请使用8位导出，或关闭该效果后进行10位导出，避免静默降低精度。");
         string fullOutput = Path.GetFullPath(outputPath);
         if (!Path.GetExtension(fullOutput).Equals(".mp4", StringComparison.OrdinalIgnoreCase))
             throw new ExportException(ExportStageCode.Validate, "导出目标必须是 MP4 文件。");
@@ -242,6 +250,8 @@ public static class TimelineExporter
                     videoCount++;
                     continue;
                 }
+                double movingTail = outgoingDurations.TryGetValue(clip.Id, out double requestedTail) &&
+                    TransitionHandles.CanMove(clip, item.Asset, requestedTail) ? requestedTail : 0;
                 bool still = clip.Kind is ClipKind.Text or ClipKind.Image or ClipKind.Color;
                 bool changingTitle = clip.Kind == ClipKind.Text &&
                     DynamicTitlePreset.HasChangingText(clip);
@@ -260,8 +270,9 @@ public static class TimelineExporter
                 }
                 else
                 {
-                    double sourceSpan = clip.DurationSeconds * clip.Speed;
-                    filter = $"trim=start={Number(clip.SourceInSeconds)}:duration={Number(sourceSpan)}" +
+                    double sourceSpan = (clip.DurationSeconds + movingTail) * clip.Speed;
+                    double sourceIn = clip.SourceInSeconds - (clip.IsReversed ? movingTail * clip.Speed : 0);
+                    filter = $"trim=start={Number(sourceIn)}:duration={Number(sourceSpan)}" +
                         (clip.IsReversed ? ",reverse" : string.Empty) +
                         $",setpts=(PTS-STARTPTS)/{Number(clip.Speed)}";
                 }
@@ -378,7 +389,7 @@ public static class TimelineExporter
                     if (transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase) &&
                         outgoingDurations.ContainsKey(clip.Id)) continue;
                     filter += TransitionRenderPlan.BuildFilters(transition, clip.DurationSeconds,
-                        "T", $"exporttr{videoCount}x{transitionIndex++}", width);
+                        "T", $"exporttr{videoCount}x{transitionIndex++}", width, settings.BitDepth == 10 ? 65535 : 255);
                 }
                 if (animatedRotation || Math.Abs(transform.RotationDegrees) > .001)
                 {
@@ -395,7 +406,8 @@ public static class TimelineExporter
                 {
                     string original = $"voriginal{videoCount}";
                     string held = $"vheld{videoCount}";
-                    graph.AppendLine($"[{local}]split=2[{original}][{held}];");
+                    graph.AppendLine($"[{local}]split=2[{original}untrimmed][{held}];");
+                    graph.AppendLine($"[{original}untrimmed]trim=end={Number(clip.StartSeconds + clip.DurationSeconds)}[{original}];");
                     overlaySource = original;
                     string hold = $"vholdframe{videoCount}";
                     double frameSeconds = 1 / project.Sequence.FramesPerSecond;
@@ -412,6 +424,10 @@ public static class TimelineExporter
                         project.Sequence.FramesPerSecond) is { } heldBoundary
                         ? TransitionRenderPlan.BuildHeldFilters(heldBoundary.Transition, heldBoundary.ClipDuration, "T")
                         : string.Empty;
+                    if (movingTail > 0)
+                        graph.AppendLine($"[{held}]trim=start={Number(clip.StartSeconds + clip.DurationSeconds)}:duration={Number(holdDuration)}," +
+                            $"setpts=PTS-STARTPTS{heldMotion},setpts=PTS+{Number(clip.StartSeconds + clip.DurationSeconds)}/TB[{hold}];");
+                    else
                     graph.AppendLine($"[{held}]trim=start={Number(Math.Max(0, lastFrame - 2 * frameSeconds))},reverse,trim=end_frame=1," +
                         $"setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={Number(holdDuration)}," +
                         $"trim=duration={Number(holdDuration)}{heldMotion},setpts=PTS+{Number(clip.StartSeconds + clip.DurationSeconds)}/TB[{hold}];");
@@ -459,12 +475,12 @@ public static class TimelineExporter
 
             var audioLabels = new List<string>();
             int audioCount = 0;
-            foreach (InputClip item in inputs.Where(item => item.HasAudio && !item.Track.IsMuted &&
+            foreach (InputClip item in inputs.Where(item => item.HasAudio && !item.Clip.AudioDetached && !item.Track.IsMuted &&
                 (item.Track.Kind == TrackKind.Audio || !item.Track.IsHidden) && !item.Clip.IsMuted))
             {
                 TimelineClip clip = item.Clip;
                 string label = $"a{audioCount++}";
-                string sourceLabel = $"{item.InputIndex}:a";
+                string sourceLabel = $"{item.InputIndex}:a:{clip.SourceAudioStreamIndex}";
                 string filter;
                 if (clip.TimeRemapPoints.Count > 0)
                 {
@@ -521,19 +537,34 @@ public static class TimelineExporter
                 $"{outputScale},tpad=stop_mode=clone:stop_duration={Number(1 / outputFps)}," +
                 $"fps={outputFpsText}:eof_action=pass,trim=end_frame={Math.Max(1, (long)Math.Ceiling(exportDuration * outputFps - .000001))},format=yuv420p[videoout];");
             graph.AppendLine($"[audioout]atrim=start={Number(rangeStart)}:end={Number(rangeEnd)},asetpts=PTS-STARTPTS[audiorange]");
-            await File.WriteAllTextAsync(scriptPath, graph.ToString(), new UTF8Encoding(false), cancellationToken)
+            string graphText = graph.ToString();
+            if (settings.BitDepth == 10)
+            {
+                // Negotiate high precision before any layer scaling or mixing,
+                // then quantize only the final delivery frame to ten bits.
+                graphText = graphText.Replace("format=rgba", "format=gbrap16le")
+                    .Replace("format=yuv420p", "format=yuv420p10le")
+                    .Replace(":format=auto", ":format=yuv420p10");
+            }
+            await File.WriteAllTextAsync(scriptPath, graphText, new UTF8Encoding(false), cancellationToken)
                 .ConfigureAwait(false);
 
             arguments.AddRange(["-filter_complex_script", scriptPath, "-map", "[videoout]", "-map", "[audiorange]",
                 "-t", Number(exportDuration), "-r", outputFpsText,
-                "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+                "-pix_fmt", settings.BitDepth == 10 ? "yuv420p10le" : "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
             if (previewEncoding is null)
             {
-                arguments.AddRange(["-c:v", "libx264", "-preset", "medium", "-threads", "4"]);
+                string codec = settings.VideoCodec switch { "HEVC" => "libx265", "AV1" => "libaom-av1", _ => "libx264" };
+                arguments.AddRange(["-c:v", codec, "-threads", "4"]);
+                if (settings.VideoCodec == "AV1") arguments.AddRange(["-cpu-used", "8", "-row-mt", "1"]);
+                else arguments.AddRange(["-preset", settings.VideoCodec == "HEVC" ? "fast" : "medium"]);
+                if (settings.VideoCodec == "HEVC") arguments.AddRange(["-tag:v", "hvc1", "-x265-params", "pools=4:frame-threads=2:log-level=error"]);
+                string colors = project.Sequence.OutputColorSpace == "Rec2020" ? "bt2020" : "bt709";
+                arguments.AddRange(["-color_primaries", colors, "-color_trc", "bt709", "-colorspace", colors == "bt2020" ? "bt2020nc" : "bt709"]);
                 if (settings.VideoBitrateKbps is int bitrate)
                     arguments.AddRange(["-b:v", $"{bitrate}k", "-maxrate", $"{bitrate * 13 / 10}k",
                         "-bufsize", $"{bitrate * 2}k"]);
-                else arguments.AddRange(["-crf", "20"]);
+                else arguments.AddRange(["-crf", settings.VideoCodec == "AV1" ? "28" : "20"]);
                 arguments.Add(temporaryOutput);
                 await RunEncoderAsync(encoder, arguments, exportDuration, progress, cancellationToken)
                     .ConfigureAwait(false);
@@ -715,7 +746,7 @@ public static class TimelineExporter
         int serial, bool audio)
     {
         string prefix = audio ? "ra" : "rv";
-        string mediaType = audio ? "a" : "v";
+        string mediaType = audio ? $"a:{clip.SourceAudioStreamIndex}" : "v";
         string result = $"{prefix}{serial}joined";
         var boundaries = new List<double> { 0 };
         double previousPoint = double.NegativeInfinity;
@@ -778,7 +809,7 @@ public static class TimelineExporter
         return result;
     }
 
-    private static string TempoFilters(double speed)
+    public static string TempoFilters(double speed)
     {
         var filters = new StringBuilder();
         while (speed > 2) { filters.Append(",atempo=2"); speed /= 2; }

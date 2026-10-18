@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -28,7 +28,7 @@ public sealed record LocalExportJob(string SequenceId, string SequenceName, stri
 public sealed class LocalExportDialog : Window
 {
     public sealed record ExportPreset(string Name, int? Width, int? Height,
-        double? FramesPerSecond, int? VideoBitrateKbps);
+        double? FramesPerSecond, int? VideoBitrateKbps, string VideoCodec = "H264", int BitDepth = 8);
 
     private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(30, 33, 40));
     private static readonly Brush FieldBrush = new SolidColorBrush(Color.FromRgb(44, 48, 58));
@@ -38,6 +38,8 @@ public sealed class LocalExportDialog : Window
     private readonly ComboBox _sequences = new();
     private readonly ComboBox _presets = new();
     private readonly ComboBox _ranges = new();
+    private readonly ComboBox _codecs = new();
+    private readonly ComboBox _depth = new();
     private readonly TextBox _width = new();
     private readonly TextBox _height = new();
     private readonly TextBox _fps = new();
@@ -63,6 +65,9 @@ public sealed class LocalExportDialog : Window
         MinHeight = Height * .75;
         Background = PanelBrush;
         Foreground = Brushes.White;
+        _codecs.ItemsSource = new[] { "H264", "HEVC", "AV1" }; _codecs.SelectedIndex = 0;
+        _depth.ItemsSource = new[] { 8, 10 }; _depth.SelectedIndex = 0;
+        _depth.ToolTip = "10位目前为SDR输出；尚未通过高精度验证的效果组合会提示改用8位或关闭对应效果。";
         BuildContent();
         PopulateSequences();
         PopulatePresets();
@@ -88,6 +93,8 @@ public sealed class LocalExportDialog : Window
         form.Children.Add(Label("画面高度（像素）")); form.Children.Add(StyleText(_height));
         form.Children.Add(Label("帧率（fps）")); form.Children.Add(StyleText(_fps));
         form.Children.Add(Label("视频码率（kbps，留空使用质量模式）")); form.Children.Add(StyleText(_bitrate));
+        form.Children.Add(Label("视频编码（HEVC / AV1 编码耗时可能更长）")); form.Children.Add(_codecs);
+        form.Children.Add(Label("位深（10位需HEVC或AV1；不等同于HDR）")); form.Children.Add(_depth);
         var savePreset = StyleButton("保存当前参数为预设");
         savePreset.Margin = new Thickness(0, 14, 0, 0);
         savePreset.Click += async (_, _) => await SaveCurrentPresetAsync();
@@ -157,6 +164,7 @@ public sealed class LocalExportDialog : Window
         _width.Text = (preset.Width ?? sequence.Width).ToString(CultureInfo.CurrentCulture);
         _height.Text = (preset.Height ?? sequence.Height).ToString(CultureInfo.CurrentCulture);
         _fps.Text = (preset.FramesPerSecond ?? sequence.FramesPerSecond).ToString("0.###", CultureInfo.CurrentCulture);
+        _codecs.SelectedItem = preset.VideoCodec; _depth.SelectedItem = preset.BitDepth;
         _bitrate.Text = preset.VideoBitrateKbps?.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
     }
 
@@ -219,7 +227,9 @@ public sealed class LocalExportDialog : Window
                 string.Equals(SafeFullPath(media.ProxyPath), outputFullPath, StringComparison.OrdinalIgnoreCase)))
                 throw new ExportDialogException(ExportDialogStageCode.Validate,
                     "导出目标不能是项目中的源文件或代理文件。");
-            var settings = new VideoExportSettings(width, height, fps, bitrate, start, end);
+            if (_codecs.SelectedItem as string == "H264" && (int)(_depth.SelectedItem ?? 8) == 10)
+                throw new ExportDialogException(ExportDialogStageCode.Validate, "10位导出请选择HEVC或AV1。");
+            var settings = new VideoExportSettings(width, height, fps, bitrate, start, end, _codecs.SelectedItem as string ?? "H264", (int)(_depth.SelectedItem ?? 8));
             return new LocalExportJob(sequence.Id, sequence.Name, picker.FileName, settings);
         }
         catch (ExportDialogException exception) { ShowError(exception); return null; }
@@ -252,7 +262,7 @@ public sealed class LocalExportDialog : Window
                 // Keep the UI collection unchanged until the worker has
                 // written the candidate preset list successfully.
                 var next = _savedPresets.Where(preset => preset.Name != name).ToList();
-                next.Add(new ExportPreset(name, width, height, fps, bitrate));
+                next.Add(new ExportPreset(name, width, height, fps, bitrate, _codecs.SelectedItem as string ?? "H264", (int)(_depth.SelectedItem ?? 8)));
                 await Task.Run(() =>
                 {
                     string path = PresetPath();

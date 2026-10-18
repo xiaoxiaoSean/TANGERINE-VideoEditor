@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
@@ -939,8 +939,11 @@ public static class ProjectFileService
         }
         foreach (MediaAsset asset in document.Media)
         {
-            if (asset is null || asset.Tags is null || asset.Metadata is null || asset.Markers is null)
+            if (asset is null || asset.Tags is null || asset.Metadata is null || asset.Markers is null || asset.AudioStreams is null)
                 throw new ProjectFileException(ProjectStageCode.Validate, "媒体素材的标签或标记数据不完整。");
+            if (asset.AudioStreams.Any(stream => stream is null || stream.Index is < 0 or > 63 || stream.StreamIndex < 0 || stream.Channels < 0 || stream.SampleRate < 0) ||
+                asset.AudioStreams.Where((stream, index) => stream.Index != index).Any())
+                throw new ProjectFileException(ProjectStageCode.Validate, "源音频流元数据无效。");
             if (string.IsNullOrWhiteSpace(asset.Id) || string.IsNullOrWhiteSpace(asset.SourcePath))
                 throw new ProjectFileException(ProjectStageCode.Validate, "媒体标识或路径无效。");
             if (asset.BinId is not null && !binIds.Contains(asset.BinId))
@@ -1026,6 +1029,11 @@ public static class ProjectFileService
             }
             foreach (TimelineClip clip in track.Clips)
             {
+                if (clip.Stabilization is null || clip.SourceAudioStreamIndex is < 0 or > 63 ||
+                    clip.Stabilization.Smoothing is < 1 or > 120 || clip.Stabilization.Shakiness is < 1 or > 10 ||
+                    !double.IsFinite(clip.Stabilization.MaxZoomPercent) || clip.Stabilization.MaxZoomPercent is < 0 or > 50 ||
+                    !double.IsFinite(clip.Stabilization.OriginalSourceIn) || clip.Stabilization.OriginalSourceIn < 0)
+                    throw new ProjectFileException(ProjectStageCode.Validate, "源音轨或视频防抖参数无效。");
                 if (clip.Transform is null || clip.Effects is null || clip.Transitions is null ||
                     clip.Effects.Any(effect => effect is null || effect.Parameters is null) ||
                     clip.Transitions.Any(transition => transition is null || transition.Parameters is null))

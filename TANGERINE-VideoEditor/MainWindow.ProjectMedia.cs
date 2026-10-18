@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -29,7 +29,7 @@ public partial class MainWindow
     {
         // Insert the controls into the existing proportional library grid.
         // No pixel size is assigned to a control or panel.
-        if (AssetSearchBox.Parent is Grid content)
+        if (LibraryContentGrid is Grid content)
         {
             int toolbarRow = 2;
             content.RowDefinitions.Insert(toolbarRow, new RowDefinition { Height = GridLength.Auto });

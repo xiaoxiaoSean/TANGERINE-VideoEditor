@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using TANGERINE_VideoEditor.Project;
@@ -35,9 +35,9 @@ public static class AudioWaveformAnalysis
             reference.TimeRemapPoints.Count > 0 || moving.TimeRemapPoints.Count > 0)
             throw new AudioOperationException(AudioStageCode.Validate, "请先对正向、原速片段执行音频同步。");
         float[] first = await ReadSamplesAsync(referencePath, reference.SourceInSeconds,
-            Math.Min(WindowSeconds, reference.DurationSeconds), cancellationToken);
+            Math.Min(WindowSeconds, reference.DurationSeconds), cancellationToken, reference.SourceAudioStreamIndex);
         float[] second = await ReadSamplesAsync(movingPath, moving.SourceInSeconds,
-            Math.Min(WindowSeconds, moving.DurationSeconds), cancellationToken);
+            Math.Min(WindowSeconds, moving.DurationSeconds), cancellationToken, moving.SourceAudioStreamIndex);
         if (first.Length < Rate * 2 || second.Length < Rate * 2)
             throw new AudioOperationException(AudioStageCode.Process, "可分析的音频不足两秒。");
         // Correlation is CPU intensive for a long search window. Execute it
@@ -113,11 +113,11 @@ public static class AudioWaveformAnalysis
     /// complex meter, half-time rhythms, and rubato still need human review.
     /// </summary>
     public static async Task<double> EstimateTempoAsync(string path, double sourceInSeconds,
-        double availableSeconds, CancellationToken cancellationToken = default)
+        double availableSeconds, CancellationToken cancellationToken = default, int sourceStreamIndex = 0)
     {
         cancellationToken.ThrowIfCancellationRequested();
         float[] samples = await ReadSamplesAsync(path, sourceInSeconds,
-            Math.Min(60, availableSeconds), cancellationToken);
+            Math.Min(60, availableSeconds), cancellationToken, sourceStreamIndex);
         // Beat search is modest but still work on up to a minute of samples.
         // Keep it off the dispatcher, just like waveform synchronization.
         return await Task.Run(() => EstimateTempo(samples, cancellationToken), cancellationToken);
@@ -166,7 +166,7 @@ public static class AudioWaveformAnalysis
     }
 
     private static async Task<float[]> ReadSamplesAsync(string path, double startSeconds, double durationSeconds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, int sourceStreamIndex = 0)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(path))
@@ -184,7 +184,7 @@ public static class AudioWaveformAnalysis
             "-hide_banner", "-loglevel", "error", "-nostdin", "-ss",
             startSeconds.ToString("0.######", CultureInfo.InvariantCulture), "-t",
             durationSeconds.ToString("0.######", CultureInfo.InvariantCulture),
-            "-i", path, "-vn", "-ac", "1", "-ar", Rate.ToString(CultureInfo.InvariantCulture),
+            "-i", path, "-map", $"0:a:{sourceStreamIndex}", "-vn", "-ac", "1", "-ar", Rate.ToString(CultureInfo.InvariantCulture),
             "-f", "f32le", "-c:a", "pcm_f32le", "pipe:1"
         }) info.ArgumentList.Add(argument);
         using var process = new Process { StartInfo = info };

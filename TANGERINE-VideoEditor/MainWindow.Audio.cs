@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -506,7 +506,7 @@ public partial class MainWindow
             try
             {
                 double result = await AudioWaveformAnalysis.EstimateTempoAsync(asset.EffectiveExportPath,
-                    clip.SourceInSeconds, asset.DurationSeconds.Value - clip.SourceInSeconds);
+                    clip.SourceInSeconds, asset.DurationSeconds.Value - clip.SourceInSeconds, sourceStreamIndex: clip.SourceAudioStreamIndex);
                 if (!ReferenceEquals(sourceProject, _project) ||
                     sourceRevision != _projectRevision || !track.Clips.Contains(clip)) return;
                 bpm.Text = result.ToString("0", CultureInfo.CurrentCulture);

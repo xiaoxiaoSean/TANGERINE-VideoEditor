@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -83,7 +83,7 @@ public partial class MainWindow
             $"{_renderedPreviewInFlight}|{_renderedPreviewPending}|{_renderedPreviewGeneration}|{_renderedPreviewFailed}|" +
             $"{TimelineZoomSlider.Value}|{UpperWorkspaceRow.Height}|{LibraryWorkspaceColumn.Width}|{_autoSaveEnabled}|" +
             $"{string.Join(',', _customShortcutBindings.OrderBy(pair => pair.Key).Select(pair => pair.Key + ':' + (pair.Value is System.Windows.Input.KeyBinding key ? key.Key.ToString() + key.Modifiers : pair.Value.ToString())))}|" +
-            $"{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
+             $"{PreviewZoomSlider.Value}|{MediaViewBox.SelectedIndex}|{_project.Sequence.MagneticTimeline}|{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
             string.Join('|', _mcpJobs.Values.OrderBy(job => job.Id).Select(job => $"{job.Id}:{job.Status}:{job.Progress:R}"));
         if (fingerprint != _mcpUiFingerprint) { _mcpUiRevision++; _mcpUiFingerprint = fingerprint; }
         Volatile.Write(ref _mcpInfo, _mcpInfo with
@@ -270,6 +270,11 @@ public partial class MainWindow
             {
                 if (string.IsNullOrWhiteSpace(clip.Id) || !ids.Add(clip.Id)) throw new StageException("MCPRT0007", "片段标识为空或重复。");
                 if (!IsCompatible(track, clip)) throw new StageException("MCPRT0007", "片段与轨道类型不兼容。");
+                if (clip.SourceAudioStreamIndex is < 0 or > 63 || clip.Stabilization is null)
+                    throw new StageException("MCPRT0008", "源音轨索引或防抖设置无效。");
+                var audioAsset = project.Media.FirstOrDefault(m => m.Id == clip.MediaAssetId);
+                if (audioAsset?.AudioStreams.Count > 0 && clip.SourceAudioStreamIndex >= audioAsset.AudioStreams.Count)
+                    throw new StageException("MCPRT0008", "源音轨索引超出媒体的音频流范围。");
                 if (!double.IsFinite(clip.SourceInSeconds) || clip.SourceInSeconds < 0 ||
                     !double.IsFinite(clip.Opacity) || clip.Opacity is < 0 or > 1 ||
                     !double.IsFinite(clip.Volume) || clip.Volume < 0)

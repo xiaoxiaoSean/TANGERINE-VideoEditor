@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json.Nodes;
 using Tangerine.VideoEditor.Automation;
 using TANGERINE_VideoEditor;
@@ -19,7 +19,7 @@ internal static class WorkspaceChecks
         byte[]? originalFile = File.Exists(path) ? await File.ReadAllBytesAsync(path) : null;
         JsonObject restore = new();
         foreach (string key in new[] { "upperRatio", "libraryRatio", "zoom", "shortcuts", "snap", "gpuMode", "autoSave",
-            "previewQualityIndex", "categoryIndex", "globalMute", "soloTrackId" })
+            "previewQualityIndex", "previewViewZoom", "mediaViewIndex", "categoryIndex", "globalMute", "soloTrackId" })
             restore[key] = snapshot[key]?.DeepClone();
         async Task<AutomationResponse> Success(string name, JsonObject? args)
         {
@@ -31,7 +31,7 @@ internal static class WorkspaceChecks
         {
             var changed = await Success("workspace_set", new()
             {
-                ["action"] = "reset", ["upperRatio"] = .63, ["libraryRatio"] = .36, ["zoom"] = 1.6,
+                ["action"] = "reset", ["upperRatio"] = .63, ["libraryRatio"] = .36, ["zoom"] = 1.6, ["previewViewZoom"] = 1.8, ["mediaViewIndex"] = 2,
                 ["shortcuts"] = new JsonObject { ["分割片段"] = "Ctrl+Alt+F8", ["删除片段"] = "Ctrl+Alt+F9" },
                 ["patch"] = new JsonObject { ["autoSave"] = false, ["gpuMode"] = "CPU 软件渲染" }
             });
@@ -40,6 +40,8 @@ internal static class WorkspaceChecks
                 "Workspace ratios report the newly applied star layout before the next measure pass");
             check(changed.Data["zoom"]!.GetValue<double>() == 1.6 && changed.Data["gpuMode"]!.GetValue<string>() == "CPU 软件渲染",
                 "Workspace preferences update the actual timeline and preview mode");
+            check(changed.Data["previewViewZoom"]!.GetValue<double>() == 1.8 && changed.Data["mediaViewIndex"]!.GetValue<int>() == 2,
+                "MCP updates preview view zoom and media thumbnail view without UI automation");
             check(changed.Data["shortcuts"]!["分割片段"]!.GetValue<string>() == "Ctrl+Alt+F8" && changed.Revision == original.Revision,
                 "Custom shortcut changes leave project revision and undo history untouched");
             string savedText = await File.ReadAllTextAsync(path);
@@ -56,8 +58,7 @@ internal static class WorkspaceChecks
             check(!duplicate.Success && await File.ReadAllTextAsync(path) == savedText,
                 "Equivalent modifier orders cannot create duplicate custom shortcuts");
             var invalidKey = await call("workspace_set", new() { ["shortcuts"] = new JsonObject { ["分割片段"] = "F8" } });
-            check(!invalidKey.Success && await File.ReadAllTextAsync(path) == savedText,
-                "Shortcut gestures use the native parser and require a modifier");
+            check(invalidKey.Success, "Single-key editing shortcuts are accepted with text-input guards");
             var removed = await Success("workspace_set", new() { ["shortcuts"] = new JsonObject { ["删除片段"] = null } });
             check(!removed.Data!["shortcuts"]!.AsObject().ContainsKey("删除片段"),
                 "Null shortcut values remove the live custom key binding");

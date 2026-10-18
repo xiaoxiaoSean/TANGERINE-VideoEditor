@@ -32,7 +32,7 @@ public static class TransitionRenderPlan
     /// prefix must be a unique, application-generated filter label.
     /// </summary>
     public static string BuildFilters(ClipTransition transition, double clipDuration, string clock,
-        string prefix, int canvasWidth)
+        string prefix, int canvasWidth, int sampleMaximum = 255)
     {
         if (!double.IsFinite(transition.DurationSeconds) || transition.DurationSeconds < 0 ||
             !double.IsFinite(clipDuration) || clipDuration <= 0)
@@ -166,7 +166,7 @@ public static class TransitionRenderPlan
             case "transition.flash":
             {
                 string mix = id == "transition.flash" ? $"min(1,{remaining}*{N(.95 * strength)})" : remaining;
-                double target = id == "transition.dip-black" ? 0 : 255;
+                double target = id == "transition.dip-black" ? 0 : sampleMaximum;
                 r = $"({r})*(1-({mix}))+{N(target)}*({mix})";
                 g = $"({g})*(1-({mix}))+{N(target)}*({mix})";
                 b = $"({b})*(1-({mix}))+{N(target)}*({mix})";
@@ -175,9 +175,9 @@ public static class TransitionRenderPlan
             case "transition.light-leak":
             {
                 string glow = $"min(1,{remaining}*{N(strength)}*exp(-pow((X/W-({q}*1.3-.15))/{N(V("spread"))},2)))";
-                r = $"({r})*(1-({glow}))+255*({glow})";
-                g = $"({g})*(1-({glow}))+{N(255 - 90 * V("warmth"))}*({glow})";
-                b = $"({b})*(1-({glow}))+{N(255 - 210 * V("warmth"))}*({glow})";
+                r = $"({r})*(1-({glow}))+{N(sampleMaximum)}*({glow})";
+                g = $"({g})*(1-({glow}))+{N(sampleMaximum * (1 - 90 / 255.0 * V("warmth")))}*({glow})";
+                b = $"({b})*(1-({glow}))+{N(sampleMaximum * (1 - 210 / 255.0 * V("warmth")))}*({glow})";
                 alpha = $"max({q},({glow}))"; break;
             }
             case "transition.page":
@@ -204,7 +204,7 @@ public static class TransitionRenderPlan
                 if (V("reverse") > .5) rank = $"(1-({rank}))";
                 alpha = $"lte({rank},{q})"; break;
             case "transition.diagonal": alpha = Feather($"(X/W+{N(V("slope"))}*Y/H)/{N(1 + V("slope"))}"); break;
-            case "transition.luma": alpha = Feather("(0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255"); break;
+            case "transition.luma": alpha = Feather($"(0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/{N(sampleMaximum)}"); break;
             default: throw new ExportException(ExportStageCode.Validate, $"不支持的转场类型“{id}”，请重新选择转场。");
         }
         // Each plane owns its expression registers. Store the shared progress,

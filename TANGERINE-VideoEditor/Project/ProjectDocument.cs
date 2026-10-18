@@ -81,6 +81,7 @@ public sealed class ProjectSequence
     public string OutputColorSpace { get; set; } = "Rec709";
     public string BackgroundColor { get; set; } = "#000000";
     public double PlayheadSeconds { get; set; }
+    public bool MagneticTimeline { get; set; }
     public double WorkAreaStartSeconds { get; set; }
     public double? WorkAreaEndSeconds { get; set; }
     [JsonExtensionData]
@@ -156,6 +157,7 @@ public sealed class MediaAsset
     public int? Height { get; set; }
     public double? FramesPerSecond { get; set; }
     public bool HasAudio { get; set; }
+    public List<SourceAudioStream> AudioStreams { get; set; } = [];
     public string? BinId { get; set; }
     public List<string> Tags { get; set; } = [];
     public string LabelColor { get; set; } = "#75AEEB";
@@ -296,8 +298,27 @@ public enum ClipKind
 /// A clip is positioned on a track and can hold media, generated content,
 /// effects, keyframes, and transitions independently.
 /// </summary>
+public sealed class SourceAudioStream
+{
+    public int Index { get; set; }
+    public int StreamIndex { get; set; }
+    public string Codec { get; set; } = "";
+    public int Channels { get; set; }
+    public int SampleRate { get; set; }
+    public string Language { get; set; } = "";
+    public string Title { get; set; } = "";
+    public override string ToString() => $"音轨 {Index + 1} · {Title} {Language} · {Codec} · {Channels} 声道";
+}
+
 public sealed class TimelineClip
 {
+    /// <summary>Audio stream ordinal, as used by FFmpeg's a:N selector.</summary>
+    public TANGERINE_VideoEditor.Editor.StabilizationSettings Stabilization { get; set; } = new();
+    public int SourceAudioStreamIndex { get; set; }
+    public string? DetachedAudioClipId { get; set; }
+    public string? DetachedVideoClipId { get; set; }
+    public bool AudioDetached { get; set; }
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = string.Empty;
     public ClipKind Kind { get; set; }
