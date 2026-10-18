@@ -1,8 +1,7 @@
 ﻿<Application x:Class="TANGERINE_VideoEditor.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:TANGERINE_VideoEditor"
-             StartupUri="MainWindow.xaml">
+             xmlns:local="clr-namespace:TANGERINE_VideoEditor">
     <Application.Resources>
         <!-- Apply the same contrast to ComboBoxes in the main workspace and
              to dialogs created in code. The popup has its own visual tree,

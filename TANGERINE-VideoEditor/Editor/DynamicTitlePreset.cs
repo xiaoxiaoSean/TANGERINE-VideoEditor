@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -37,17 +37,26 @@ public static partial class DynamicTitlePreset
     /// "whole line in 1.8 s" rule makes a long sentence type absurdly fast.
     /// Other presets start unset, which already means their built-in defaults.
     /// </summary>
-    public static TitleMotion? DefaultMotionFor(string? presetId) =>
-        presetId is "title.typewriter" or "title.kinetic"
-            ? new TitleMotion { SecondsPerCharacter = DefaultSecondsPerCharacter }
-            : null;
+    public static TitleMotion? DefaultMotionFor(string? presetId) => presetId switch
+    {
+        "title.typewriter" => new TitleMotion { SecondsPerCharacter = DefaultSecondsPerCharacter },
+        "title.kinetic" => new TitleMotion { PopSeconds = .45, PopStartScale = .45, PopOvershoot = .16,
+            SlideSeconds = .55, SlideDistance = .32, SlideFrom = "Bottom" },
+        "title.clean-lower-third" => new TitleMotion { SlideSeconds = .7, SlideDistance = .45, SlideFrom = "Left", Easing = "EaseOut" },
+        "title.box-reveal" => new TitleMotion { FadeInSeconds = .65, FadeOutSeconds = .35 },
+        "title.outline-pop" => new TitleMotion { PopSeconds = .65, PopStartScale = .2, PopOvershoot = .22 },
+        "title.crawl" => new TitleMotion { ScrollDistance = 1.6, ScrollDirection = "Left", Easing = "Linear" },
+        "title.zoom" => new TitleMotion { ZoomStartScale = .65, ZoomEndScale = 1.3, Easing = "Smooth" },
+        _ => null
+    };
 
     [GeneratedRegex(@"(?<first>-?\d+(?:\.\d+)?)\s*(?:→|->)\s*(?<last>-?\d+(?:\.\d+)?)",
         RegexOptions.CultureInvariant)]
     private static partial Regex CounterRangeRegex();
 
     public static bool IsDynamic(TimelineClip clip) => clip.TemplateId is
-        "title.typewriter" or "title.counter" or "title.fade" or "title.slide" or "title.pop" or "title.kinetic";
+        "title.typewriter" or "title.counter" or "title.fade" or "title.slide" or "title.pop" or "title.kinetic" or "title.credits" or
+        "title.clean-lower-third" or "title.box-reveal" or "title.outline-pop" or "title.crawl" or "title.zoom";
 
     public static bool HasChangingText(TimelineClip clip) => clip.TemplateId is
         "title.typewriter" or "title.counter";
@@ -118,6 +127,20 @@ public static partial class DynamicTitlePreset
 
     public static double PopOvershoot(TimelineClip clip) =>
         Setting(Motion(clip)?.PopOvershoot, DefaultPopOvershoot, 0, 1);
+
+    public static bool HasSlide(TimelineClip clip) => clip.TemplateId is "title.slide" or "title.kinetic" or "title.clean-lower-third";
+    public static bool HasPop(TimelineClip clip) => clip.TemplateId is "title.pop" or "title.kinetic" or "title.outline-pop";
+    public static bool HasFade(TimelineClip clip) => clip.TemplateId is "title.fade" or "title.box-reveal";
+    public static string Easing(TimelineClip clip) => Motion(clip)?.Easing is "Linear" or "EaseIn" or "EaseOut" or "Smooth"
+        ? Motion(clip)!.Easing! : clip.TemplateId == "title.crawl" ? "Linear" : "Smooth";
+    public static double ScrollSeconds(TimelineClip clip) =>
+        Setting(Motion(clip)?.ScrollSeconds, Math.Max(.05, clip.DurationSeconds - DelaySeconds(clip)), .05, 3600);
+    public static double ScrollDistance(TimelineClip clip) => Setting(Motion(clip)?.ScrollDistance, 1.6, 0, 8);
+    public static string ScrollDirection(TimelineClip clip) => Motion(clip)?.ScrollDirection == "Right" ? "Right" : "Left";
+    public static double ZoomSeconds(TimelineClip clip) =>
+        Setting(Motion(clip)?.ZoomSeconds, Math.Max(.05, clip.DurationSeconds - DelaySeconds(clip)), .05, 3600);
+    public static double ZoomStartScale(TimelineClip clip) => Setting(Motion(clip)?.ZoomStartScale, .65, .05, 8);
+    public static double ZoomEndScale(TimelineClip clip) => Setting(Motion(clip)?.ZoomEndScale, 1.3, .05, 8);
 
     // ---- Text that changes over time --------------------------------------
 
@@ -200,7 +223,7 @@ public static partial class DynamicTitlePreset
 
     public static double OpacityMultiplier(TimelineClip clip, double localSeconds)
     {
-        if (clip.TemplateId != "title.fade") return 1;
+        if (!HasFade(clip)) return 1;
         (double fadeIn, double fadeOut) = FadeSeconds(clip);
         double rampIn = fadeIn > .000001 ? Math.Clamp(localSeconds / fadeIn, 0, 1) : 1;
         double rampOut = fadeOut > .000001
@@ -212,41 +235,71 @@ public static partial class DynamicTitlePreset
     private static double SlideProgress(TimelineClip clip, double localSeconds)
     {
         double delay = DelaySeconds(clip);
-        return Smooth(Progress(localSeconds - delay, clip.DurationSeconds - delay, SlideSeconds(clip)));
+        return Ease(clip, Progress(localSeconds - delay, clip.DurationSeconds - delay, SlideSeconds(clip)));
     }
 
     public static double HorizontalOffset(TimelineClip clip, double localSeconds, double canvasWidth)
     {
-        if (clip.TemplateId != "title.slide") return 0;
+        if (clip.TemplateId == "title.crawl")
+        {
+            double delay = DelaySeconds(clip);
+            double progress = Ease(clip, Progress(localSeconds - delay, clip.DurationSeconds - delay, ScrollSeconds(clip)));
+            return (ScrollDirection(clip) == "Left" ? 1 : -1) * canvasWidth * ScrollDistance(clip) * (.5 - progress);
+        }
+        if (!HasSlide(clip)) return 0;
         double travel = SlideDistance(clip) * canvasWidth * (1 - SlideProgress(clip, localSeconds));
         return SlideFrom(clip) switch { "Left" => -travel, "Right" => travel, _ => 0 };
     }
 
     public static double VerticalOffset(TimelineClip clip, double localSeconds, double canvasHeight)
     {
-        if (clip.TemplateId != "title.slide") return 0;
+        if (!HasSlide(clip)) return 0;
         double travel = SlideDistance(clip) * canvasHeight * (1 - SlideProgress(clip, localSeconds));
         return SlideFrom(clip) switch { "Top" => -travel, "Bottom" => travel, _ => 0 };
     }
 
     public static double ScaleMultiplier(TimelineClip clip, double localSeconds)
     {
-        if (clip.TemplateId is not ("title.pop" or "title.kinetic")) return 1;
         double delay = DelaySeconds(clip);
+        if (clip.TemplateId == "title.zoom")
+        {
+            double zoomProgress = Ease(clip, Progress(localSeconds - delay, clip.DurationSeconds - delay, ZoomSeconds(clip)));
+            return ZoomStartScale(clip) + (ZoomEndScale(clip) - ZoomStartScale(clip)) * zoomProgress;
+        }
+        if (!HasPop(clip)) return 1;
         double progress = Progress(localSeconds - delay, clip.DurationSeconds - delay, PopSeconds(clip));
         if (progress >= 1) return 1;
         double start = PopStartScale(clip);
         // The overshoot gives the title a clear entrance. The start scale is
         // kept above zero, so this never produces a nonpositive scale or moves
         // the sequence-center pivot.
-        return start + (1 - start) * Smooth(progress) + PopOvershoot(clip) * Math.Sin(Math.PI * progress);
+        return start + (1 - start) * Ease(clip, progress) + PopOvershoot(clip) * Math.Sin(Math.PI * progress);
+    }
+
+    public static double CreditsOffset(TimelineClip clip, double localSeconds, double canvasHeight)
+    {
+        if (clip.TemplateId != "title.credits") return 0;
+        double speed = clip.Text?.Motion?.CreditsSpeed is double value && double.IsFinite(value)
+            ? Math.Clamp(value, .05, 4) : .45;
+        double progress = Math.Clamp(localSeconds / Math.Max(.05, clip.DurationSeconds), 0, 1);
+        // Credits are already bottom-aligned. A whole extra canvas height
+        // kept the default title below the visible frame for the entire clip.
+        return canvasHeight * (.1 - progress * speed);
+    }
+
+    public static string FfmpegCreditsOffset(TimelineClip clip, int canvasHeight, string clock)
+    {
+        if (clip.TemplateId != "title.credits") return string.Empty;
+        double speed = clip.Text?.Motion?.CreditsSpeed is double value && double.IsFinite(value)
+            ? Math.Clamp(value, .05, 4) : .45;
+        return $"{Number(canvasHeight * .1)}-{Number(canvasHeight * speed)}*clip(({clock})/{Number(Math.Max(.05, clip.DurationSeconds))},0,1)";
     }
 
     // ---- Export motion (the same curves as FFmpeg expressions) -------------
 
     public static string FfmpegFade(TimelineClip clip)
     {
-        if (clip.TemplateId != "title.fade") return string.Empty;
+        if (!HasFade(clip)) return string.Empty;
         (double fadeIn, double fadeOut) = FadeSeconds(clip);
         var filters = new StringBuilder();
         if (fadeIn > .000001)
@@ -259,14 +312,20 @@ public static partial class DynamicTitlePreset
     public static string FfmpegHorizontalOffset(TimelineClip clip, int canvasWidth, string clock)
     {
         string from = SlideFrom(clip);
-        if (clip.TemplateId != "title.slide" || from is not ("Left" or "Right")) return string.Empty;
+        if (clip.TemplateId == "title.crawl")
+        {
+            double delay = DelaySeconds(clip);
+            string progress = FfmpegEase(clip, Fraction(clock, delay, Math.Min(ScrollSeconds(clip), clip.DurationSeconds - delay)));
+            return $"{Number((ScrollDirection(clip) == "Left" ? 1 : -1) * canvasWidth * ScrollDistance(clip))}*(0.5-{progress})";
+        }
+        if (!HasSlide(clip) || from is not ("Left" or "Right")) return string.Empty;
         return $"{(from == "Left" ? "-" : string.Empty)}{Number(SlideDistance(clip) * canvasWidth)}*(1-{FfmpegSlideEase(clip, clock)})";
     }
 
     public static string FfmpegVerticalOffset(TimelineClip clip, int canvasHeight, string clock)
     {
         string from = SlideFrom(clip);
-        if (clip.TemplateId != "title.slide" || from is not ("Top" or "Bottom")) return string.Empty;
+        if (!HasSlide(clip) || from is not ("Top" or "Bottom")) return string.Empty;
         return $"{(from == "Top" ? "-" : string.Empty)}{Number(SlideDistance(clip) * canvasHeight)}*(1-{FfmpegSlideEase(clip, clock)})";
     }
 
@@ -274,22 +333,44 @@ public static partial class DynamicTitlePreset
     {
         double delay = DelaySeconds(clip);
         double span = Math.Max(.001, Math.Min(SlideSeconds(clip), clip.DurationSeconds - delay));
-        string elapsed = delay > .000001 ? $"(({clock})-{Number(delay)})" : $"({clock})";
-        string fraction = $"clip({elapsed}/{Number(span)},0,1)";
-        return $"({fraction}*{fraction}*(3-2*{fraction}))";
+        return FfmpegEase(clip, Fraction(clock, delay, span));
     }
 
     public static string FfmpegScale(TimelineClip clip, string clock)
     {
-        if (clip.TemplateId is not ("title.pop" or "title.kinetic")) return string.Empty;
         double delay = DelaySeconds(clip);
+        if (clip.TemplateId == "title.zoom")
+        {
+            string zoomProgress = FfmpegEase(clip, Fraction(clock, delay, Math.Min(ZoomSeconds(clip), clip.DurationSeconds - delay)));
+            return $"({Number(ZoomStartScale(clip))}+{Number(ZoomEndScale(clip) - ZoomStartScale(clip))}*{zoomProgress})";
+        }
+        if (!HasPop(clip)) return string.Empty;
         double span = Math.Max(.001, Math.Min(PopSeconds(clip), clip.DurationSeconds - delay));
         string elapsed = delay > .000001 ? $"(({clock})-{Number(delay)})" : $"({clock})";
         string progress = $"clip({elapsed}/{Number(span)},0,1)";
-        string eased = $"({progress}*{progress}*(3-2*{progress}))";
+        string eased = FfmpegEase(clip, progress);
         double start = PopStartScale(clip);
         return $"({Number(start)}+{Number(1 - start)}*{eased}+{Number(PopOvershoot(clip))}*sin(PI*{progress}))";
     }
+
+    private static string Fraction(string clock, double delay, double span) =>
+        $"clip((({clock})-{Number(delay)})/{Number(Math.Max(.001, span))},0,1)";
+
+    private static double Ease(TimelineClip clip, double progress) => Easing(clip) switch
+    {
+        "Linear" => progress,
+        "EaseIn" => progress * progress,
+        "EaseOut" => 1 - (1 - progress) * (1 - progress),
+        _ => Smooth(progress)
+    };
+
+    private static string FfmpegEase(TimelineClip clip, string fraction) => Easing(clip) switch
+    {
+        "Linear" => $"({fraction})",
+        "EaseIn" => $"({fraction}*{fraction})",
+        "EaseOut" => $"(1-(1-{fraction})*(1-{fraction}))",
+        _ => $"({fraction}*{fraction}*(3-2*{fraction}))"
+    };
 
     private static double Progress(double localSeconds, double availableSeconds, double actionSeconds)
     {

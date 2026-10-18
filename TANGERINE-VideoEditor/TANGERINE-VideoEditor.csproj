@@ -3,6 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <Version>1.0.0</Version>
     <RootNamespace>TANGERINE_VideoEditor</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,8 +11,33 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="..\toAI.md" Link="toAI.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\dev_doc1\*.md" Link="dev_doc1\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <ProjectReference Include="..\TANGERINE-VideoEditor.Automation\TANGERINE-VideoEditor.Automation.csproj" />
+    <ProjectReference Include="..\TANGERINE-VideoEditor.Mcp\TANGERINE-VideoEditor.Mcp.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="FFmpeg.Static" Version="4.4.0.7" />
     <Content Include="$(NuGetPackageRoot)ffmpeg.static/4.4.0.7/ffmpeg/**" Link="ffmpeg/%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <EmbeddedResource Include="SystemIntegration\Native\UserChoiceLatestHash\TzipLatestHash.dll" LogicalName="TANGERINE_VideoEditor.TvepLatestHash.dll" />
+    <EmbeddedResource Include="SystemIntegration\Native\UserChoiceLatestHash\LICENSE" LogicalName="TANGERINE_VideoEditor.UserChoiceLatestHash.MIT.txt" />
+    <EmbeddedResource Include="SystemIntegration\Native\SFTA\LICENSE" LogicalName="TANGERINE_VideoEditor.SFTA.MIT.txt" />
   </ItemGroup>
+
+  <!-- Ship the stdio companion beside every editor build, including its SDK
+       dependencies. The editor itself remains a WPF process without stdout. -->
+  <Target Name="CopyMcpCompanion" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\TANGERINE-VideoEditor.Mcp\TANGERINE-VideoEditor.Mcp.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);TargetFramework=net10.0">
+      <Output TaskParameter="TargetOutputs" ItemName="McpCompanionAssembly" />
+    </MSBuild>
+    <PropertyGroup>
+      <McpCompanionDirectory>@(McpCompanionAssembly->'%(RootDir)%(Directory)')</McpCompanionDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <McpCompanionFiles Include="$(McpCompanionDirectory)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(McpCompanionFiles)" DestinationFiles="@(McpCompanionFiles->'$(TargetDir)mcp\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishMcpCompanion" AfterTargets="Publish" Condition="'$(DesignTimeBuild)' != 'true'">
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\TANGERINE-VideoEditor.Mcp\TANGERINE-VideoEditor.Mcp.csproj" Targets="Publish" Properties="Configuration=$(Configuration);TargetFramework=net10.0;PublishDir=$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(PublishDir)', 'mcp'))" />
+  </Target>
 
 </Project>

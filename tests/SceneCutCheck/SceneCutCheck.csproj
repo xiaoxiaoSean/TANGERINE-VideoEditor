@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../TANGERINE-VideoEditor/Editor/SceneCutDetector.cs" Link="SceneCutDetector.cs" />
+    <PackageReference Include="FFmpeg.Static" Version="4.4.0.7" />
+    <Content Include="$(NuGetPackageRoot)ffmpeg.static/4.4.0.7/ffmpeg/**"
+             Link="ffmpeg/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

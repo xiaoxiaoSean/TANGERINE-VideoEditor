@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(BaselineAssembly)' == ''">
+    <ProjectReference Include="../../TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(BaselineAssembly)' != ''">
+    <Reference Include="TANGERINE-VideoEditor">
+      <HintPath>$(BaselineAssembly)</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="$(NuGetPackageRoot)ffmpeg.static/4.4.0.7/ffmpeg/**"
+             Link="ffmpeg/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

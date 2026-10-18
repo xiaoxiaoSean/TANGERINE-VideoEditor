@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -675,18 +675,17 @@ public partial class MainWindow
                 Opacity = Math.Clamp(ClipAnimation.Evaluate(clip, "Opacity", now) *
                     DynamicTitlePreset.OpacityMultiplier(clip, localTitleSeconds), 0, 1)
             };
-            if (!string.IsNullOrWhiteSpace(style.BackgroundColor))
-                text.Background = ParseBrush(style.BackgroundColor, Brushes.Transparent);
             text.LineHeight = Math.Max(fontSize, fontSize * style.LineHeight);
             if (style.ShadowEnabled)
             {
+                bool glow = clip.TemplateId == "title.glow";
                 text.Effect = new DropShadowEffect
                 {
-                    Color = ParseColor(style.ShadowColor, Colors.Black),
-                    BlurRadius = Math.Max(0, style.ShadowBlur * scale),
-                    ShadowDepth = Math.Sqrt(style.ShadowOffsetX * style.ShadowOffsetX + style.ShadowOffsetY * style.ShadowOffsetY) * scale,
+                    Color = ParseColor(glow ? style.GlowColor : style.ShadowColor, Colors.Black),
+                    BlurRadius = Math.Max(0, (glow ? style.GlowRadius : style.ShadowBlur) * scale),
+                    ShadowDepth = glow ? 0 : Math.Sqrt(style.ShadowOffsetX * style.ShadowOffsetX + style.ShadowOffsetY * style.ShadowOffsetY) * scale,
                     Direction = Math.Atan2(-style.ShadowOffsetY, style.ShadowOffsetX) * 180 / Math.PI,
-                    Opacity = Math.Clamp(style.ShadowOpacity, 0, 1)
+                    Opacity = Math.Clamp(glow ? style.GlowOpacity : style.ShadowOpacity, 0, 1)
                 };
             }
             // Measure the full text block as export does. The monitor canvas
@@ -699,19 +698,11 @@ public partial class MainWindow
             double positionX = (ClipAnimation.Evaluate(clip, "PositionX", now) +
                 DynamicTitlePreset.HorizontalOffset(clip, localTitleSeconds, _project.Sequence.Width)) * scale;
             double positionY = (ClipAnimation.Evaluate(clip, "PositionY", now) +
-                DynamicTitlePreset.VerticalOffset(clip, localTitleSeconds, _project.Sequence.Height)) * scale;
-            double x = frameLeft + (style.HorizontalAlignment switch
-            {
-                "Left" => 0,
-                "Right" => frameWidth - titleSize.Width,
-                _ => (frameWidth - titleSize.Width) / 2
-            }) + positionX;
-            double y = frameTop + (style.VerticalAlignment switch
-            {
-                "Top" => 0,
-                "Bottom" => frameHeight - titleSize.Height,
-                _ => (frameHeight - titleSize.Height) / 2
-            }) + positionY;
+                DynamicTitlePreset.VerticalOffset(clip, localTitleSeconds, _project.Sequence.Height) +
+                DynamicTitlePreset.CreditsOffset(clip, localTitleSeconds, _project.Sequence.Height)) * scale;
+            Point titleOrigin = TitleLayout.TextOrigin(style, frameWidth, frameHeight, titleSize);
+            double x = frameLeft + titleOrigin.X + positionX;
+            double y = frameTop + titleOrigin.Y + positionY;
             double visualWidth = Math.Max(28, titleSize.Width);
             double visualHeight = Math.Max(28, titleSize.Height);
             double visualScaleX = Math.Clamp(ClipAnimation.Evaluate(clip, "ScaleX", now), .05, 8) *
@@ -746,9 +737,7 @@ public partial class MainWindow
             {
                 Width = visualWidth,
                 Height = visualHeight,
-                Background = showTitleHitArea
-                    ? spacedText ? text.Background ?? Brushes.Transparent : Brushes.Transparent
-                    : null,
+                Background = showTitleHitArea ? Brushes.Transparent : null,
                 Opacity = animatedOpacity,
                 IsHitTestVisible = showTitleHitArea,
                 Cursor = Cursors.SizeAll,
@@ -769,6 +758,9 @@ public partial class MainWindow
                     }
                 }
             };
+            Border? titleBackground = TitleLayout.Background(style, titleSize, scale,
+                ParseBrush(style.BackgroundColor, Brushes.Transparent));
+            if (titleBackground is not null) titleVisual.Children.Add(titleBackground);
             if (style.OutlineEnabled && style.OutlineThickness > 0)
             {
                 var outline = new TextBlock
@@ -795,7 +787,7 @@ public partial class MainWindow
                         Text = outline.Text, FontFamily = outline.FontFamily, FontSize = outline.FontSize,
                         FontWeight = outline.FontWeight, FontStyle = outline.FontStyle,
                         Foreground = outline.Foreground, TextAlignment = outline.TextAlignment,
-                        TextWrapping = outline.TextWrapping
+                        TextWrapping = TextWrapping.NoWrap, LineHeight = text.LineHeight
                     };
                     if (spacedText)
                         LetterSpacingText.Draw(titleVisual, style, scale, 0,

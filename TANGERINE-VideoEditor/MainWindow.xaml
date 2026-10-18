@@ -76,14 +76,14 @@
         <Style TargetType="TextBox"><Setter Property="Background" Value="#292B31" /><Setter Property="Foreground" Value="White" /><Setter Property="CaretBrush" Value="White" /><Setter Property="BorderBrush" Value="{StaticResource Line}" /><Setter Property="Padding" Value="8,6" /></Style>
         <Style TargetType="ContextMenu"><Setter Property="Background" Value="{StaticResource Panel}" /><Setter Property="Foreground" Value="White" /></Style>
     </Window.Resources>
-    <Grid>
+    <Grid x:Name="EditorRootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Menu Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+        <Menu x:Name="EditorMenuBar" Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
             <MenuItem Header="文件(_F)">
                 <MenuItem x:Name="NewMenuItem" Header="新建项目" InputGestureText="Ctrl+N" />
                 <MenuItem x:Name="OpenMenuItem" Header="打开项目…" InputGestureText="Ctrl+O" />
@@ -131,6 +131,7 @@
             <MenuItem Header="轨道(_T)">
                 <MenuItem x:Name="AddVideoTrackMenuItem" Header="添加视频轨道" />
                 <MenuItem x:Name="AddAudioTrackMenuItem" Header="添加音频轨道" />
+                <MenuItem x:Name="RenameTrackMenuItem" Header="重命名当前轨道…" />
                 <MenuItem x:Name="DeleteTrackMenuItem" Header="删除当前轨道" />
                 <MenuItem x:Name="DeleteEmptyTracksMenuItem" Header="删除所有空轨道" />
                 <Separator />
@@ -155,11 +156,19 @@
                 <MenuItem x:Name="ColorScopesMenuItem" Header="视频示波器…" />
                 <MenuItem x:Name="AudioMixerMenuItem" Header="音轨混音器…" />
             </MenuItem>
+            <MenuItem Header="为系统做设置">
+                <MenuItem x:Name="DefaultOpenWithMenuItem" Header="默认打开方式设置…" />
+            </MenuItem>
             <MenuItem Header="帮助(_H)">
+                <MenuItem x:Name="McpConnectionMenuItem" Header="AI / MCP 连接…" />
                 <MenuItem x:Name="ShortcutsMenuItem" Header="快捷键" />
                 <MenuItem x:Name="AboutMenuItem" Header="关于 TANGERINE" />
             </MenuItem>
         </Menu>
+        <TextBlock x:Name="McpControlNotice" Grid.Row="0" Text="正在通过MCP操作本程序"
+                   Visibility="Collapsed" IsHitTestVisible="False" Focusable="False"
+                   Background="{StaticResource Panel}" Foreground="{StaticResource Accent}"
+                   Padding="10,5" FontWeight="SemiBold" />
         <Border Grid.Row="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="10,5">
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
@@ -310,6 +319,7 @@
                                     <MenuItem x:Name="TimelineKeyframeItem" Header="添加关键帧" />
                                     <Separator />
                                     <MenuItem x:Name="TimelineLockTrackItem" Header="锁定 / 解锁轨道" />
+                                    <MenuItem x:Name="TimelineRenameTrackItem" Header="重命名轨道…" />
                                     <MenuItem x:Name="TimelineMuteTrackItem" Header="静音 / 取消静音轨道" />
                                     <MenuItem x:Name="TimelineHideTrackItem" Header="隐藏 / 显示轨道" />
                                     <MenuItem x:Name="TimelineMoveTrackUpItem" Header="轨道上移" />
@@ -329,6 +339,7 @@
             <DockPanel>
                 <TextBlock x:Name="StatusText" Text="就绪" Foreground="{StaticResource Muted}" DockPanel.Dock="Left" VerticalAlignment="Center" />
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                    <TextBlock x:Name="VersionText" Foreground="{StaticResource Muted}" Margin="12,0" />
                     <TextBlock x:Name="ProjectAspectRatioText" Text="宽高比 16:9" Foreground="{StaticResource Muted}" Margin="12,0" />
                     <TextBlock x:Name="SaveStateText" Text="已保存" Foreground="{StaticResource Muted}" Margin="12,0" />
                 </StackPanel>

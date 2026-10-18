@@ -351,10 +351,13 @@ public partial class MainWindow
             {
                 BuiltinPreset preset = transitions[Math.Clamp(transitionChoice.SelectedIndex, 0, transitions.Count - 1)];
                 TimelineTrack? owner = _project.Tracks.FirstOrDefault(track => track.Clips.Contains(clip));
-                if (owner is null || !TryFindTransitionBoundary(owner, clip, null,
-                    out TimelineClip? incoming) || incoming is null)
+                if (owner is null) { StatusText.Text = "片段已从轨道移除 · VIS-TRANSITION-STATE"; return; }
+                TimelineClip? incoming = TryFindTransitionBoundary(owner, clip, null,
+                    out TimelineClip? pairedIncoming) && pairedIncoming is not null
+                    ? pairedIncoming : BoundaryCrossfade.IsVisible(clip) ? clip : null;
+                if (incoming is null)
                 {
-                    StatusText.Text = "转场需要同一轨道上紧邻的两段视频或图片 · VIS-TRANSITION-BOUNDARY";
+                    StatusText.Text = "只有可见对象可以添加转场 · VIS-TRANSITION-VISIBILITY";
                     return;
                 }
                 SaveUndoState();
@@ -914,7 +917,8 @@ public partial class MainWindow
             foreach (double local in times)
             {
                 BitmapSource frame = await ClipFrameRenderer.RenderClipFrameAsync(clip, asset, _project.Sequence,
-                    clip.StartSeconds + Math.Min(local, Math.Max(0, clip.DurationSeconds - .001)),
+                    clip.StartSeconds + Math.Min(local, Math.Max(0, clip.DurationSeconds -
+                        1 / Math.Max(1, asset.FramesPerSecond ?? _project.Sequence.FramesPerSecond))),
                     sampleWidth, sampleHeight, includeVisualEffects: false);
                 (double x, double y) = await AutoReframeAnalyzer.AnalyzeAsync(frame);
                 centers.Add((local, x, y));

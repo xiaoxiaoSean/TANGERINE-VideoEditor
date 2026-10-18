@@ -27,7 +27,9 @@ public static class VisualEffectPipeline
         "effect.highlights" => [new("amount", "高光", -.2, -.9, .9, true)],
         "effect.shadows" => [new("amount", "阴影", .25, -.9, .9, true)],
         "effect.vignette" => [new("amount", "暗角", .25, 0, 1)],
-        "effect.glow" or "effect.blur" or "effect.motion-blur" =>
+        "effect.glow" =>
+            [new("amount", "光晕强度", 2, 0, 20), new("radius", "光效范围", 8, 0, 40)],
+        "effect.blur" or "effect.motion-blur" =>
             [new("amount", "强度", presetId == "effect.blur" ? 5 : 2, 0, 20)],
         "effect.sharpen" => [new("amount", "锐化", 1.2, 0, 3)],
         "effect.grain" or "effect.noise" =>
@@ -37,7 +39,7 @@ public static class VisualEffectPipeline
         "effect.chromatic" or "effect.glitch" => [new("amount", "偏移像素", 5, 0, 40)],
         "effect.key" => [new("similarity", "相似度", .12, .01, 1), new("feather", "边缘柔化", .04, 0, 1)],
         "effect.lut" => [new("strength", "LUT 强度", 1, 0, 1)],
-        "effect.vintage" => [new("amount", "复古强度", .75, 0, 1, true)],
+        "effect.vintage" => [new("amount", "复古强度", .75, 0, 1, true), new("grain", "颗粒范围", 18, 0, 100)],
         "effect.cinematic" => [new("amount", "电影对比度", 1.35, 0, 3, true)],
         "effect.dream" or "effect.soft-focus" => [new("amount", "柔焦强度", 3, 0, 20)],
         "effect.color-pop" => [new("amount", "色彩强度", 1.6, 0, 3, true)],
@@ -116,25 +118,31 @@ public static class VisualEffectPipeline
             // Get intensity multiplier (0-200% -> 0.0-2.0)
             double intensity = 1.0;
             if (effect.Parameters.TryGetValue("intensity", out var intensityValue) &&
-                intensityValue.ValueKind == System.Text.Json.JsonValueKind.Number)
+                intensityValue.ValueKind == JsonValueKind.Number &&
+                intensityValue.TryGetDouble(out double storedIntensity) && double.IsFinite(storedIntensity))
             {
-                intensity = intensityValue.GetDouble() / 100.0;
+                intensity = Math.Clamp(storedIntensity / 100.0, 0, 2);
             }
 
             // Skip if intensity is zero
             if (intensity <= 0.001) continue;
 
-            double p(string name) => GetNumber(effect, ParametersFor(id).First(item => item.Id == name)) * intensity;
+            double p(string name)
+            {
+                Parameter parameter = ParametersFor(id).First(item => item.Id == name);
+                return Math.Clamp(GetNumber(effect, parameter) * intensity, parameter.Minimum, parameter.Maximum);
+            }
             string a(string name)
             {
                 Parameter parameter = ParametersFor(id).First(item => item.Id == name);
                 string property = ParameterProperty(effect, parameter);
                 if (!parameter.Animatable || !ClipAnimation.HasKeyframes(clip, property))
                     return Number(p(name));
-                double value = previewLocalSeconds is double local
-                    ? ClipAnimation.Evaluate(clip, property, clip.StartSeconds + local)
-                    : throw new InvalidOperationException("Animated parameters require preview time");
-                return Number(value * intensity);
+                if (previewLocalSeconds is double local)
+                    return Number(Math.Clamp(ClipAnimation.Evaluate(clip, property, clip.StartSeconds + local) * intensity,
+                        parameter.Minimum, parameter.Maximum));
+                string expression = ClipAnimation.FfmpegExpression(clip, property, "t");
+                return $"clip(({expression})*{Number(intensity)},{Number(parameter.Minimum)},{Number(parameter.Maximum)})";
             }
             string filter = id switch
             {
@@ -147,11 +155,12 @@ public static class VisualEffectPipeline
                 "effect.highlights" => $"eq=gamma='1+({a("amount")})':eval=frame",
                 "effect.shadows" => $"eq=gamma='1+({a("amount")})':eval=frame",
                 "effect.vignette" => $"vignette=angle={Number((1 - p("amount") * .8) * Math.PI / 2)}",
-                "effect.glow" or "effect.blur" => $"gblur=sigma={Number(p("amount"))}",
+                "effect.glow" => $"gblur=sigma={Number(p("radius"))},eq=brightness='{Number(.02 * p("amount"))}':eval=frame",
+                "effect.blur" => $"gblur=sigma={Number(p("amount"))}",
                 "effect.motion-blur" => $"tmix=frames={Math.Clamp((int)Math.Round(p("amount")), 1, 8)}",
                 "effect.sharpen" => $"unsharp=5:5:{Number(p("amount"))}",
                 "effect.grain" or "effect.noise" => $"noise=alls={Number(p("amount"))}:allf=t",
-                "effect.vintage" => $"{BuildSepia(p("amount"))},noise=alls={Number(18 * p("amount"))}:allf=t",
+                "effect.vintage" => $"{BuildSepia(p("amount"))},noise=alls={Number(p("grain"))}:allf=t",
                 "effect.cinematic" => $"eq=contrast='{a("amount")}':eval=frame,eq=saturation='0.86':eval=frame",
                 "effect.dream" or "effect.soft-focus" => $"gblur=sigma={Number(p("amount"))},eq=brightness='0.06':eval=frame",
                 "effect.color-pop" => $"eq=saturation='{a("amount")}':eval=frame,eq=contrast='1.08':eval=frame",
@@ -214,17 +223,17 @@ public static class VisualEffectPipeline
 
     private static string BuildSepia(double intensity)
     {
-        if (intensity <= 0.001) return string.Empty;
-        if (intensity >= 0.999)
-            return "colorchannelmixer=.393:.769:.189:.349:.686:.168:.272:.534:.131";
-
-        // Blend between normal and sepia
+        intensity = Math.Clamp(intensity, 0, 1);
+        // Name the RGB coefficients explicitly: positional options also
+        // contain alpha entries, so nine positional numbers corrupt channels.
+        // Keep the identity matrix at zero so a following noise filter still
+        // has a valid input chain, and format numbers independently of locale.
         double r = 0.393 * intensity + (1 - intensity);
         double g = 0.686 * intensity + (1 - intensity);
         double b = 0.131 * intensity + (1 - intensity);
-        return $"colorchannelmixer={r:F3}:{0.769 * intensity:F3}:{0.189 * intensity:F3}:" +
-               $"{0.349 * intensity:F3}:{g:F3}:{0.168 * intensity:F3}:" +
-               $"{0.272 * intensity:F3}:{0.534 * intensity:F3}:{b:F3}";
+        return $"colorchannelmixer=rr={Number(r)}:rg={Number(.769 * intensity)}:rb={Number(.189 * intensity)}:" +
+               $"gr={Number(.349 * intensity)}:gg={Number(g)}:gb={Number(.168 * intensity)}:" +
+               $"br={Number(.272 * intensity)}:bg={Number(.534 * intensity)}:bb={Number(b)}";
     }
 
     private static string BuildLut(ClipEffect effect, double intensity)

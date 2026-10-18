@@ -32,14 +32,13 @@ public static class AafInterchange
         var doc = new XDocument(
             new XDeclaration("1.0", "UTF-8", null),
             new XElement("AAF",
-                new XAttribute("xmlns", "http://www.aafassociation.org/aafx/v1.1/20050628"),
                 new XElement("Header",
                     new XElement("OperationalPattern", "urn:smpte:ul:060E2B34.04010101.0D010201.01010900"),
                     new XElement("EssenceContainers"),
                     new XElement("Identification",
                         new XElement("CompanyName", "TANGERINE VideoEditor"),
                         new XElement("ProductName", "TANGERINE VideoEditor"),
-                        new XElement("ProductVersion", "2.0.0"),
+                        new XElement("ProductVersion", AppVersion.Number),
                         new XElement("Date", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"))
                     )
                 ),
@@ -53,6 +52,12 @@ public static class AafInterchange
             )
         );
 
+        // XElement names carry XML namespaces. Writing an xmlns attribute on
+        // an unqualified root tries to redefine its already empty namespace
+        // and XmlWriter rejects the document at serialization time.
+        XNamespace aaf = "http://www.aafassociation.org/aafx/v1.1/20050628";
+        foreach (XElement element in doc.Root!.DescendantsAndSelf())
+            element.Name = aaf + element.Name.LocalName;
         return doc;
     }
 

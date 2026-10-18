@@ -15,6 +15,7 @@ namespace TANGERINE_VideoEditor;
 public partial class MainWindow
 {
     private readonly string[] _categories = ["媒体", "文字", "特效", "转场", "贴纸", "滤镜"];
+    private int _lastLibraryCategory;
     private Point _libraryDragStart;
     private readonly SemaphoreSlim _mediaImportGate = new(1, 1);
     private readonly SemaphoreSlim _mediaProbeGate = new(2, 2);
@@ -34,6 +35,7 @@ public partial class MainWindow
                 return;
             }
             SettingsHost.Visibility = Visibility.Collapsed;
+            _lastLibraryCategory = Math.Max(0, CategoryList.SelectedIndex);
             AssetList.Visibility = Visibility.Visible;
             LibraryContentGrid.Visibility = Visibility.Visible;
             RefreshLibrary();
@@ -53,10 +55,9 @@ public partial class MainWindow
                 CatalogPlaybackBar.Visibility = Visibility.Collapsed;
                 StatusText.Text = "示例预览已结束";
             }
-            string? completed = _catalogPreviewPath;
-            _catalogPreviewPath = null;
-            if (!string.IsNullOrWhiteSpace(completed))
-                _ = Task.Run(() => { try { if (File.Exists(completed)) File.Delete(completed); } catch (IOException) { } });
+            // Keep ownership until the media element releases the file. Its
+            // last frame can remain open after MediaEnded on Windows; the next
+            // selection, category change or window close releases this lease.
         };
         AssetList.MouseDoubleClick += (_, _) =>
         {
@@ -117,7 +118,11 @@ public partial class MainWindow
         _catalogPreviewCancellation = null;
         CatalogPreviewService.StopPreview();
         if (_catalogPreviewPath is string path)
-            _ = Task.Run(() => { try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { } });
+        {
+            PreviewMediaElement.Stop();
+            PreviewMediaElement.Source = null;
+            DeleteCatalogPlaybackFile(path);
+        }
         _catalogPreviewPath = null;
         CatalogPlaybackBar.Visibility = Visibility.Collapsed;
         CatalogPlaybackSlider.Value = 0;
@@ -139,11 +144,15 @@ public partial class MainWindow
         long generation = Interlocked.Increment(ref _catalogPreviewGeneration);
         int category = CategoryList.SelectedIndex;
         LibraryItem? selected = AssetList.SelectedItem as LibraryItem;
-        if (category is not (1 or 3) || selected is null ||
+        if (category is not (1 or 2 or 3 or 5) || selected is null ||
             selected.Source is not BuiltinPreset preset) return;
         StatusText.Text = $"正在生成“{preset.Name}”示例预览…";
         PreviewMediaElement.Stop();
         PreviewMediaElement.Source = null;
+        if (_catalogPreviewPath is string previousPath) DeleteCatalogPlaybackFile(previousPath);
+        _catalogPreviewPath = null;
+        _catalogPreviewActive = false;
+        CatalogPlaybackBar.Visibility = Visibility.Collapsed;
         PreviewMediaElement.Visibility = Visibility.Collapsed;
         PreviewRenderedFrame.Visibility = Visibility.Collapsed;
         PreviewImage.Visibility = Visibility.Collapsed;
@@ -160,9 +169,10 @@ public partial class MainWindow
         string ffmpeg = TimelineExporter.ResolveEncoderPath();
         _ = Task.Run(async () =>
         {
+            string? path = null;
+            bool handedToPlayer = false;
             try
             {
-                string? path = null;
                 void Play(string generated) => path = generated;
                 void Progress(double value)
                 {
@@ -177,6 +187,8 @@ public partial class MainWindow
                 }
                 if (category == 3)
                     await CatalogPreviewService.PlayTransitionPreviewAsync(preset.Id, ffmpeg, Play, token, Progress);
+                else if (category is 2 or 5)
+                    await CatalogPreviewService.PlayEffectPreviewAsync(preset.Id, ffmpeg, Play, token, Progress);
                 else
                     await CatalogPreviewService.PlayTextPreviewAsync(preset.Id, sampleText, ffmpeg,
                         CreateTitleStyle, Play, token, Progress);
@@ -184,12 +196,45 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(() =>
                 {
                     if (!token.IsCancellationRequested && generation == Volatile.Read(ref _catalogPreviewGeneration))
+                    {
                         PlayCatalogPreview(path);
+                        handedToPlayer = true;
+                    }
                 });
             }
             catch (OperationCanceledException) { }
-            catch (Exception exception) { await Dispatcher.InvokeAsync(() => StatusText.Text = $"示例预览失败：{exception.Message}"); }
+            catch (Exception exception)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (token.IsCancellationRequested || generation != Volatile.Read(ref _catalogPreviewGeneration)) return;
+                    CatalogPreviewProgressBar.Visibility = Visibility.Collapsed;
+                    PreviewMessage.Text = "示例预览生成失败";
+                    StatusText.Text = $"示例预览失败：{exception.Message}";
+                });
+            }
+            finally
+            {
+                // The service transfers a disposable playback copy. If this
+                // selection became obsolete before the dispatcher accepted it,
+                // no player owns that copy and the worker must release it.
+                if (!handedToPlayer && path is not null) DeleteCatalogPlaybackFile(path);
+            }
         }, token);
+    }
+
+    private static void DeleteCatalogPlaybackFile(string path)
+    {
+        _ = Task.Run(async () =>
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                try { File.Delete(path); return; }
+                catch (IOException) when (attempt < 2)
+                { await Task.Delay(150 * (attempt + 1)).ConfigureAwait(false); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return; }
+            }
+        });
     }
 
     /// <summary>
@@ -255,7 +300,12 @@ public partial class MainWindow
     private void RefreshLibrary()
     {
         if (AssetList is null || CategoryList is null) return;
-        int category = Math.Max(0, CategoryList.SelectedIndex);
+        // Object inspectors append temporary category tabs. Refresh the
+        // underlying library using its last real category, never the tab's
+        // index, while keeping the active inspector visible.
+        int category = CategoryList.SelectedIndex >= _categories.Length
+            ? Math.Clamp(_lastLibraryCategory, 0, _categories.Length - 1)
+            : Math.Max(0, CategoryList.SelectedIndex);
         string query = AssetSearchBox?.Text.Trim() ?? string.Empty;
         LibraryTitle.Text = _categories[category];
         LibrarySubtitle.Text = category switch
@@ -309,7 +359,9 @@ public partial class MainWindow
                         tag.Value.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
                     asset.SourcePath.Contains(query, StringComparison.CurrentCultureIgnoreCase)))).ToList();
         }
+        string? selectedAsset = (AssetList.SelectedItem as LibraryItem)?.Source is MediaAsset selected ? selected.Id : null;
         AssetList.ItemsSource = items;
+        if (category == 0 && selectedAsset is not null) AssetList.SelectedItem = items.FirstOrDefault(item => item.Id == selectedAsset);
         EmptyLibraryMessage.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyLibraryMessage.Text = category == 0 ? "点击导入，或把媒体文件直接拖到这里" : "没有匹配的内置对象";
     }

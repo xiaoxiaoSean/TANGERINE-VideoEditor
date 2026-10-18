@@ -34,6 +34,39 @@ public sealed class GraphicShape
     public double StrokeFraction { get; set; }
     public List<Point> Points { get; set; } = [];
 
+    /// <summary>
+    /// Creates the authoritative geometry for a built-in sticker. Timeline
+    /// insertion, catalog demonstrations and automation share these defaults.
+    /// A circle uses equal pixel diameters even on a non-square sequence;
+    /// ellipse width and height remain independent fractions of the canvas.
+    /// </summary>
+    public static GraphicShape FromPreset(BuiltinPreset preset, int canvasWidth, int canvasHeight)
+    {
+        if (canvasWidth <= 0 || canvasHeight <= 0)
+            throw new GraphicShapeException(GraphicShapeStageCode.Validate, "形状画布尺寸无效。");
+        string kind = preset.Id switch
+        {
+            "sticker.rectangle" => "Rectangle", "sticker.circle" => "Circle",
+            "sticker.ellipse" => "Ellipse", "sticker.triangle" => "Triangle",
+            "sticker.pentagon" => "Pentagon", "sticker.hexagon" => "Hexagon",
+            "sticker.decagon" => "Decagon", "sticker.parallelogram" => "Parallelogram",
+            "sticker.quadrilateral" => "Quadrilateral",
+            _ => throw new GraphicShapeException(GraphicShapeStageCode.Validate, "内置形状预设不存在。")
+        };
+        double diameter = Math.Min(canvasWidth, canvasHeight) * .35;
+        var shape = new GraphicShape
+        {
+            Kind = kind,
+            WidthFraction = kind == "Circle" ? diameter / canvasWidth : .35,
+            HeightFraction = kind == "Circle" ? diameter / canvasHeight : .35,
+            FillColor = preset.AccentHex, StrokeColor = "#FFFFFFFF", StrokeFraction = .006
+        };
+        if (kind == "Quadrilateral")
+            shape.Points = [new Point(.12, .18), new Point(.86, .12), new Point(.92, .82), new Point(.18, .9)];
+        shape.Validate();
+        return shape;
+    }
+
     public static GraphicShape? FromClip(TimelineClip clip)
     {
         if (clip.Text?.AdditionalData?.TryGetValue(ExtensionKey, out JsonElement value) != true) return null;

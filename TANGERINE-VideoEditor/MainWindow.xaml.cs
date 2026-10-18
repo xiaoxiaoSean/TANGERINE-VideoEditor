@@ -13,6 +13,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = $"TANGERINE · 视频剪辑 {AppVersion.DisplayName}";
+        VersionText.Text = AppVersion.DisplayName;
         InitializeProjectCommands();
         InitializeLibrary();
         InitializeImageSequenceCommands();
@@ -29,6 +31,7 @@ public partial class MainWindow : Window
         InitializeVisualEffectsCommands();
         InitializeExtendedWorkspace();
         InitializeExportCommands();
+        InitializeMcp();
         RefreshEditorFromProject();
     }
 
@@ -66,9 +69,8 @@ public partial class MainWindow : Window
     private void InitializeWorkspaceCommands()
     {
         ExitMenuItem.Click += (_, _) => Close();
-        AboutMenuItem.Click += (_, _) => MessageBox.Show(this,
-            "TANGERINE 视频剪辑器\n支持素材、文字样式、时间线剪辑、.tvep 项目读写及 MP4 导出。",
-            "关于 TANGERINE", MessageBoxButton.OK, MessageBoxImage.Information);
+        AboutMenuItem.Click += (_, _) => new AboutWindow { Owner = this }.ShowDialog();
+        DefaultOpenWithMenuItem.Click += (_, _) => new DefaultOpenWithWindow { Owner = this }.ShowDialog();
         ShortcutsMenuItem.Click += (_, _) => MessageBox.Show(this,
             "空格：播放 / 暂停\nJ / K / L：倒放 / 暂停 / 正放\nCtrl+N：新建\nCtrl+O：打开\nCtrl+S：保存\nCtrl+I：导入媒体\nCtrl+M：添加序列标记\nCtrl+B：分割\nDelete：删除选中片段\nCtrl+Z / Ctrl+Y：撤销 / 重做",
             "快捷键", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -102,9 +104,13 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _mediaMetadataCancellation?.Cancel();
+            _catalogPreviewCancellation?.Cancel();
+            Editor.CatalogPreviewService.StopPreview();
             StopAudioPreview();
             _sourceMonitor?.Close();
             PreviewMediaElement.Close();
+            if (_catalogPreviewPath is string catalogPath) DeleteCatalogPlaybackFile(catalogPath);
+            _catalogPreviewPath = null;
             PreviewImage.Source = null;
             PreviewRenderedFrame.Source = null;
             _ = ReleaseProjectCacheSafelyAsync(_project);

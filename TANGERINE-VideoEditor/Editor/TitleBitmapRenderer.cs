@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -56,39 +56,24 @@ public static class TitleBitmapRenderer
                 "Right" => TextAlignment.Right,
                 _ => TextAlignment.Center
             },
-            LineHeight = Math.Max(1, style.LineHeight) * fontSize,
+            LineHeight = Math.Max(fontSize, Math.Max(.5, style.LineHeight) * fontSize),
         };
 
         TextBlock title = CreateText(foreground);
         title.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         bool spaced = Math.Abs(style.LetterSpacing) >= .001 && !string.IsNullOrEmpty(style.Content);
         Size titleSize = spaced ? LetterSpacingText.Measure(style, 1, 0) : title.DesiredSize;
-        double x = style.HorizontalAlignment switch
-        {
-            "Left" => 0,
-            "Right" => width - titleSize.Width,
-            _ => (width - titleSize.Width) / 2
-        };
-        double y = style.VerticalAlignment switch
-        {
-            "Top" => 0,
-            "Bottom" => height - titleSize.Height,
-            _ => (height - titleSize.Height) / 2
-        };
+        Point origin = TitleLayout.TextOrigin(style, width, height, titleSize);
+        double x = origin.X;
+        double y = origin.Y;
         // The complete transparent title is positioned by the shared FFmpeg
-        // overlay. Keeping this bitmap centered lets position keyframes apply
-        // once and gives scale/rotation the same sequence-center anchor.
-
-        if (!string.IsNullOrWhiteSpace(style.BackgroundColor))
+        // overlay. Insets and padded backgrounds use this same layout in the monitor.
+        Border? background = TitleLayout.Background(style, titleSize, 1,
+            ParseBrush(style.BackgroundColor, Brushes.Transparent));
+        if (background is not null)
         {
-            var background = new Border
-            {
-                Background = ParseBrush(style.BackgroundColor, Brushes.Transparent),
-                Width = titleSize.Width,
-                Height = titleSize.Height
-            };
-            Canvas.SetLeft(background, x);
-            Canvas.SetTop(background, y);
+            Canvas.SetLeft(background, x + Canvas.GetLeft(background));
+            Canvas.SetTop(background, y + Canvas.GetTop(background));
             canvas.Children.Add(background);
         }
 
@@ -115,13 +100,14 @@ public static class TitleBitmapRenderer
         }
         if (style.ShadowEnabled)
         {
+            bool glow = clip.TemplateId == "title.glow";
             title.Effect = new DropShadowEffect
             {
-                Color = ParseColor(style.ShadowColor, Colors.Black),
-                BlurRadius = Math.Max(0, style.ShadowBlur),
-                ShadowDepth = Math.Sqrt(style.ShadowOffsetX * style.ShadowOffsetX + style.ShadowOffsetY * style.ShadowOffsetY),
+                Color = ParseColor(glow ? style.GlowColor : style.ShadowColor, Colors.Black),
+                BlurRadius = Math.Max(0, glow ? style.GlowRadius : style.ShadowBlur),
+                ShadowDepth = glow ? 0 : Math.Sqrt(style.ShadowOffsetX * style.ShadowOffsetX + style.ShadowOffsetY * style.ShadowOffsetY),
                 Direction = Math.Atan2(-style.ShadowOffsetY, style.ShadowOffsetX) * 180 / Math.PI,
-                Opacity = Math.Clamp(style.ShadowOpacity, 0, 1)
+                Opacity = Math.Clamp(glow ? style.GlowOpacity : style.ShadowOpacity, 0, 1)
             };
         }
         if (spaced)

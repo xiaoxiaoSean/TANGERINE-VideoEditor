@@ -858,7 +858,7 @@ public static class ProjectFileService
         sequence.WorkAreaEndSeconds is double end &&
             (!double.IsFinite(end) || end <= sequence.WorkAreaStartSeconds);
 
-    private static void Validate(ProjectDocument document)
+    internal static void Validate(ProjectDocument document)
     {
         if (!string.Equals(document.Format, ProjectDocument.FormatIdentifier, StringComparison.Ordinal))
         {

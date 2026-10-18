@@ -75,12 +75,27 @@ public partial class MainWindow
         };
         if (dialog.ShowDialog(this) != true) return;
 
+        await OpenProjectPathAsync(dialog.FileName, confirmDiscard: false);
+    }
+
+    /// <summary>
+    /// Shares the validated asynchronous project-load path between the Open
+    /// dialog and Explorer's quoted file-association command line. A failed
+    /// load leaves the current project and its editing history intact.
+    /// </summary>
+    internal async Task OpenProjectPathAsync(string path, bool confirmDiscard = true)
+    {
+        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress) return;
+        if (confirmDiscard && !ConfirmDiscardChanges()) return;
         _projectIoInProgress = true;
         long openingGeneration = _projectGeneration;
         long openingRevision = _projectRevision;
         try
         {
-            ProjectDocument loaded = await ProjectFileService.LoadAsync(dialog.FileName);
+            if (!Path.GetExtension(path).Equals(ProjectDocument.FileExtension, StringComparison.OrdinalIgnoreCase))
+                throw new ProjectFileException(ProjectStageCode.Read, "只能打开 .tvep 项目文件。");
+            string fullPath = Path.GetFullPath(path);
+            ProjectDocument loaded = await ProjectFileService.LoadAsync(fullPath);
             // The file service resolves embedded archive entries to its
             // working cache. Legacy path references are resolved there too.
             if (openingGeneration != _projectGeneration || openingRevision != _projectRevision)
@@ -94,20 +109,20 @@ public partial class MainWindow
             _projectCreated = true;
             _sourceMonitor?.Close();
             _projectGeneration++;
-            _projectPath = dialog.FileName;
+            _projectPath = fullPath;
             _isProjectDirty = false;
             _projectRevision++;
             ResetEditorSession();
             RefreshEditorFromProject();
             _ = ReleaseProjectCacheSafelyAsync(outgoing);
             RefreshProjectChrome();
-            StatusText.Text = $"已打开 {Path.GetFileName(dialog.FileName)}";
+            StatusText.Text = $"已打开 {Path.GetFileName(fullPath)}";
         }
         catch (ProjectFileException exception)
         {
             ShowProjectError(exception);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             ShowProjectError(new ProjectFileException(ProjectStageCode.Read, "打开项目时无法解析媒体路径。", exception));
         }
@@ -278,7 +293,11 @@ public partial class MainWindow
 
     private async Task ReleaseProjectCacheSafelyAsync(ProjectDocument document)
     {
-        try { await ProjectFileService.ReleaseCachedMediaAsync(document); }
+        try
+        {
+            await McpWaitForProjectJobsAsync(document);
+            await ProjectFileService.ReleaseCachedMediaAsync(document);
+        }
         catch (ProjectFileException exception)
         {
             StatusText.Text = $"旧项目缓存清理失败 · {exception.StageCode}";

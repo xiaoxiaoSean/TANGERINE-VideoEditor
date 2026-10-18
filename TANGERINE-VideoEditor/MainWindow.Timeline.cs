@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -104,6 +104,7 @@ public partial class MainWindow
         };
         TimelineZoomSlider.ValueChanged += (_, _) => RefreshTimeline();
         TimelineScrollViewer.PreviewMouseWheel += TimelineScrollViewer_PreviewMouseWheel;
+        InitializeTimelineHorizontalWheel();
         TimelineScrollViewer.SizeChanged += (_, _) => RefreshTimeline();
         TimelineScrollViewer.ScrollChanged += (_, args) =>
         {
@@ -211,6 +212,8 @@ public partial class MainWindow
         MoveTrackDownMenuItem.Click += (_, _) => MoveContextTrack(1);
         TimelineMoveTrackUpItem.Click += (_, _) => MoveContextTrack(-1);
         TimelineMoveTrackDownItem.Click += (_, _) => MoveContextTrack(1);
+        RenameTrackMenuItem.Click += (_, _) => PromptRenameTrack(_contextTrack ?? _selectedTrack);
+        TimelineRenameTrackItem.Click += (_, _) => PromptRenameTrack(_contextTrack ?? _selectedTrack);
         // Commands are also available when the user right-clicks blank
         // timeline space, where no clip-specific menu is present.
         if (TimelineCanvas.ContextMenu is ContextMenu emptyMenu)
@@ -350,6 +353,25 @@ public partial class MainWindow
                     if (x >= visibleLeft && x <= visibleRight)
                         DrawTransitionMarker(track, incoming, prior, transition, duration, x, y);
                 }
+            // A visible object may also have an independent in/out transition
+            // at the sequence boundary. Keep those markers editable even when
+            // there is no adjacent source to form a two-clip transition.
+            foreach (TimelineClip clip in track.Clips.Where(BoundaryCrossfade.IsVisible))
+                foreach (ClipTransition transition in clip.Transitions)
+                {
+                    bool isPairTransition = track.Clips.Any(candidate =>
+                        BoundaryCrossfade.TryGetTransition(track, candidate,
+                            _project.Sequence.FramesPerSecond, out _, out ClipTransition? pair,
+                            out _) && ReferenceEquals(pair, transition));
+                    if (isPairTransition) continue;
+                    double duration = Math.Min(Math.Max(0, transition.DurationSeconds), clip.DurationSeconds / 2);
+                    if (duration <= 0) continue;
+                    double x = transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase)
+                        ? HeaderSpace + (clip.StartSeconds + clip.DurationSeconds) * PixelsPerSecond
+                        : HeaderSpace + clip.StartSeconds * PixelsPerSecond;
+                    if (x >= visibleLeft && x <= visibleRight)
+                        DrawTransitionMarker(track, clip, null, transition, duration, x, y);
+                }
         }
 
         // Sequence markers are visible in the ruler as well as available to
@@ -478,7 +500,7 @@ public partial class MainWindow
             Height = TrackSpace * 0.42,
             Background = Brushes.Transparent,
             Cursor = Cursors.SizeNS,
-            ToolTip = "拖动轨道名称上下调整顺序；右键可上移、下移或删除轨道",
+            ToolTip = "拖动轨道名称上下调整顺序；右键可重命名、上移、下移或删除轨道",
             Tag = track,
             Child = new TextBlock
             {
@@ -489,6 +511,12 @@ public partial class MainWindow
                 Margin = new Thickness(8, 7, 5, 0)
             }
         };
+        var trackMenu = new ContextMenu();
+        AddContextCommand(trackMenu, "重命名轨道…", () => PromptRenameTrack(track));
+        AddContextCommand(trackMenu, "轨道上移", () => { _contextTrack = track; MoveContextTrack(-1); });
+        AddContextCommand(trackMenu, "轨道下移", () => { _contextTrack = track; MoveContextTrack(1); });
+        AddContextCommand(trackMenu, "删除轨道", () => { _contextTrack = track; RemoveContextTrack(); });
+        header.ContextMenu = trackMenu;
         Canvas.SetLeft(header, 0);
         Canvas.SetTop(header, y);
         TimelineCanvas.Children.Add(header);
@@ -662,7 +690,7 @@ public partial class MainWindow
     }
 
     private void DrawTransitionMarker(TimelineTrack track, TimelineClip incoming,
-        TimelineClip prior, ClipTransition transition, double duration, double x, double y)
+        TimelineClip? prior, ClipTransition transition, double duration, double x, double y)
     {
         var menu = new ContextMenu { Background = Brush("#24262C"), Foreground = Brushes.White };
         AddContextCommand(menu, "删除转场", () => RemoveBoundaryTransition(track, incoming, prior, transition));
@@ -710,7 +738,7 @@ public partial class MainWindow
     }
 
     private void SelectTransition(TimelineTrack track, TimelineClip incoming,
-        TimelineClip prior, ClipTransition transition, double duration)
+        TimelineClip? prior, ClipTransition transition, double duration)
     {
         _selectedTransition = transition;
         _selectedTransitionIncoming = incoming;
@@ -725,7 +753,7 @@ public partial class MainWindow
     }
 
     private void EditBoundaryTransition(TimelineTrack track, TimelineClip incoming,
-        TimelineClip prior, ClipTransition transition)
+        TimelineClip? prior, ClipTransition transition)
     {
         if (track.IsLocked) { StatusText.Text = "轨道已锁定 · VIS-TRANSITION-LOCKED"; return; }
 
@@ -742,14 +770,16 @@ public partial class MainWindow
     private void ShowTransitionSettings()
     {
         if (_selectedTransition == null || _selectedTransitionIncoming == null ||
-            _selectedTransitionPrior == null || _selectedTransitionTrack == null) return;
+            _selectedTransitionTrack == null) return;
 
         var panel = new StackPanel { Margin = new Thickness(0) };
         panel.Children.Add(SettingsHeader("转场设置", () => CloseSettingsTabs()));
 
         panel.Children.Add(new TextBlock
         {
-            Text = $"{_selectedTransitionPrior.Name} → {_selectedTransitionIncoming.Name}",
+            Text = _selectedTransitionPrior is null
+                ? $"{_selectedTransitionIncoming.Name} · {_selectedTransition.Edge}"
+                : $"{_selectedTransitionPrior.Name} → {_selectedTransitionIncoming.Name}",
             Foreground = Brush("#9CA3AF"),
             Margin = new Thickness(0, 0, 0, 15)
         });
@@ -770,6 +800,14 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 0, 15)
         };
         panel.Children.Add(duration);
+        panel.Children.Add(new TextBlock { Text = "应用边缘", Margin = new Thickness(0, 0, 0, 5) });
+        var edge = new ComboBox
+        {
+            ItemsSource = new[] { "In", "Out" },
+            SelectedItem = _selectedTransition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase) ? "Out" : "In",
+            Margin = new Thickness(0, 0, 0, 15)
+        };
+        panel.Children.Add(edge);
 
         // Strength / turn count of the transition's current type. They apply
         // as soon as they are entered; changing the type rebuilds this tab.
@@ -794,12 +832,14 @@ public partial class MainWindow
             if (!double.TryParse(duration.Text, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.CurrentCulture, out double seconds) ||
                 !double.IsFinite(seconds) || seconds <= 1 / _project.Sequence.FramesPerSecond ||
-                seconds > Math.Min(30, Math.Min(_selectedTransitionPrior.DurationSeconds, _selectedTransitionIncoming.DurationSeconds) / 2))
+                seconds > Math.Min(30, (_selectedTransitionPrior is null
+                    ? _selectedTransitionIncoming.DurationSeconds
+                    : Math.Min(_selectedTransitionPrior.DurationSeconds, _selectedTransitionIncoming.DurationSeconds)) / 2))
             { StatusText.Text = "转场时长超出相邻片段可用范围 · VIS-TRANSITION-DURATION"; return; }
             if (!_selectedTransitionTrack.Clips.Contains(_selectedTransitionIncoming) ||
-                !_selectedTransitionTrack.Clips.Contains(_selectedTransitionPrior) ||
+                _selectedTransitionPrior is not null && !_selectedTransitionTrack.Clips.Contains(_selectedTransitionPrior) ||
                 !_selectedTransitionIncoming.Transitions.Contains(_selectedTransition) &&
-                !_selectedTransitionPrior.Transitions.Contains(_selectedTransition))
+                (_selectedTransitionPrior is null || !_selectedTransitionPrior.Transitions.Contains(_selectedTransition)))
             { StatusText.Text = "转场已变化 · VIS-TRANSITION-STATE"; return; }
             SaveUndoState();
             BuiltinPreset choice = BuiltinCatalog.Transitions[Math.Clamp(preset.SelectedIndex, 0,
@@ -807,6 +847,7 @@ public partial class MainWindow
             _selectedTransition.PresetId = choice.Id;
             _selectedTransition.Name = choice.Name;
             _selectedTransition.DurationSeconds = seconds;
+            _selectedTransition.Edge = edge.SelectedItem as string == "Out" ? "Out" : "In";
             MarkProjectDirty(); RefreshTimeline();
             SeekPreview(_selectedTransitionIncoming.StartSeconds + Math.Min(seconds, _selectedTransitionIncoming.DurationSeconds / 2) / 2);
             StatusText.Text = "已应用转场设置";
@@ -816,15 +857,29 @@ public partial class MainWindow
         panel.Children.Add(applyButton);
 
         OpenSettingsCategory("转场设置", panel);
+        string incomingId = _selectedTransitionIncoming.Id;
+        string? priorId = _selectedTransitionPrior?.Id;
+        string transitionId = _selectedTransition.Id;
+        _mcpInspectorRefresh = () =>
+        {
+            TimelineClip? incoming = _project.Tracks.SelectMany(track => track.Clips).FirstOrDefault(clip => clip.Id == incomingId);
+            TimelineClip? prior = _project.Tracks.SelectMany(track => track.Clips).FirstOrDefault(clip => clip.Id == priorId);
+            ClipTransition? current = incoming?.Transitions.Concat(prior?.Transitions ?? []).FirstOrDefault(item => item.Id == transitionId);
+            if (incoming is null || current is null) { CloseSettingsTabs(); return; }
+            _selectedTransition = current; _selectedTransitionIncoming = incoming;
+            _selectedTransitionPrior = prior; _selectedTransitionTrack = McpOwner(incoming);
+            ShowTransitionSettings(); DrawTimeline();
+        };
     }
 
     private void RemoveBoundaryTransition(TimelineTrack track, TimelineClip incoming,
-        TimelineClip prior, ClipTransition transition)
+        TimelineClip? prior, ClipTransition transition)
     {
         if (track.IsLocked) { StatusText.Text = "轨道已锁定 · EDIT-TRANSITION-LOCKED"; return; }
-        if (!incoming.Transitions.Contains(transition) && !prior.Transitions.Contains(transition)) return;
+        if (!incoming.Transitions.Contains(transition) &&
+            (prior is null || !prior.Transitions.Contains(transition))) return;
         SaveUndoState();
-        if (!incoming.Transitions.Remove(transition)) prior.Transitions.Remove(transition);
+        if (!incoming.Transitions.Remove(transition) && prior is not null) prior.Transitions.Remove(transition);
         ClearTransitionSelection();
         MarkProjectDirty();
         RefreshTimeline();
@@ -1267,6 +1322,32 @@ public partial class MainWindow
 
     private void FinishClipGesture()
     {
+        bool moving = _movingClip;
+        bool trimmingEnd = _trimmingEnd;
+        // MouseMove is not guaranteed to deliver the last pointer position
+        // before release. Resolve the track magnet once more at commit time so
+        // every drag ends on the same frame/boundary as its preview.
+        if (_snapEnabled && _selectedTrack?.IsSnapping != false && _selectedClip is not null)
+        {
+            if (moving)
+            {
+                double snapped = SnapMovingClipStart(_selectedClip.StartSeconds);
+                double delta = snapped - _selectedClip.StartSeconds;
+                if (Math.Abs(delta) > .000001)
+                {
+                    _selectedClip.StartSeconds = snapped;
+                    foreach (var companion in _moveCompanionOriginalStarts)
+                        companion.Key.StartSeconds = Math.Max(0, companion.Key.StartSeconds + delta);
+                }
+            }
+            else if (trimmingEnd)
+            {
+                double end = SnapEditTime(_selectedClip.StartSeconds + _selectedClip.DurationSeconds,
+                    _selectedClip);
+                double minimum = 1 / Math.Max(1, _project.Sequence.FramesPerSecond);
+                _selectedClip.DurationSeconds = Math.Max(minimum, end - _selectedClip.StartSeconds);
+            }
+        }
         _clipEdgeScrollTimer.Stop();
         _movingClip = false;
         _trimmingStart = false;
@@ -1642,22 +1723,8 @@ public partial class MainWindow
         };
         if (isSticker && item.Source is BuiltinPreset stickerPreset)
         {
-            string shapeKind = stickerPreset.Id switch
-            {
-                "sticker.circle" => "Circle",
-                "sticker.ellipse" => "Ellipse",
-                "sticker.triangle" => "Triangle",
-                "sticker.pentagon" => "Pentagon",
-                "sticker.hexagon" => "Hexagon",
-                "sticker.decagon" => "Decagon",
-                "sticker.parallelogram" => "Parallelogram",
-                "sticker.quadrilateral" => "Quadrilateral",
-                _ => "Rectangle"
-            };
-            var shape = new GraphicShape { Kind = shapeKind, WidthFraction = .35, HeightFraction = .35,
-                FillColor = stickerPreset.AccentHex, StrokeColor = "#FFFFFFFF", StrokeFraction = .006 };
-            if (shapeKind == "Quadrilateral")
-                shape.Points = [new Point(.12, .18), new Point(.86, .12), new Point(.92, .82), new Point(.18, .9)];
+            GraphicShape shape = GraphicShape.FromPreset(stickerPreset,
+                _project.Sequence.Width, _project.Sequence.Height);
             shape.Save(clip);
             clip.Text!.Content = string.Empty;
         }
@@ -1701,6 +1768,8 @@ public partial class MainWindow
                 style.BackgroundColor = "#CC181A20";
                 break;
             case "title.lower-third":
+                style.Content = "人物姓名\n职务 / 说明";
+                style.HorizontalInset = .05; style.VerticalInset = .08;
                 style.HorizontalAlignment = "Left"; style.VerticalAlignment = "Bottom";
                 style.Bold = true; style.FontSize = 68;
                 break;
@@ -1715,6 +1784,7 @@ public partial class MainWindow
                 style.ForegroundColor = "#53C5EC"; style.OutlineEnabled = true;
                 style.OutlineColor = "#1B76B8"; style.OutlineThickness = 4;
                 style.ShadowEnabled = true; style.ShadowColor = "#53C5EC";
+                style.GlowColor = "#53C5EC"; style.GlowRadius = 24; style.GlowOpacity = .85;
                 style.ShadowBlur = 24;
                 break;
             case "title.outline":
@@ -1726,6 +1796,8 @@ public partial class MainWindow
                 style.ShadowBlur = 18;
                 break;
             case "title.quote":
+                style.Content = "“在这里写下引言”\n—— 署名";
+                style.BackgroundPaddingX = 32; style.BackgroundPaddingY = 20;
                 style.Italic = true; style.FontSize = 62;
                 style.BackgroundColor = "#CC24262C";
                 break;
@@ -1736,6 +1808,8 @@ public partial class MainWindow
                 style.Content = "0 → 100";
                 break;
             case "title.date":
+                style.Content = "日期 · 地点";
+                style.HorizontalInset = .05; style.VerticalInset = .08;
                 style.FontSize = 58; style.HorizontalAlignment = "Left";
                 style.VerticalAlignment = "Bottom";
                 break;
@@ -1749,6 +1823,10 @@ public partial class MainWindow
                 style.OutlineThickness = 2;
                 break;
             case "title.handwritten":
+                // KaiTi is the Windows Chinese calligraphic family; WPF's
+                // composite fallback still supports non-Chinese characters.
+                style.FontFamily = "KaiTi";
+                style.Content = "写下此刻的心情";
                 style.FontSize = 76; style.Italic = true; style.ForegroundColor = "#FFE6A3";
                 style.ShadowEnabled = true; style.ShadowBlur = 12;
                 break;
@@ -1760,17 +1838,54 @@ public partial class MainWindow
             case "title.kinetic":
                 style.FontSize = 96; style.Bold = true; style.ForegroundColor = "#FFFFFFFF";
                 style.OutlineEnabled = true; style.OutlineThickness = 4;
-                style.Motion = new TitleMotion { PopSeconds = .45, PopStartScale = .45, PopOvershoot = .16 };
+                style.Motion = DynamicTitlePreset.DefaultMotionFor(presetId);
+                break;
+            case "title.clean-lower-third":
+                style.Content = "人物姓名  /  职务说明";
+                style.FontSize = 56; style.Bold = true;
+                style.HorizontalAlignment = "Left"; style.VerticalAlignment = "Bottom";
+                style.HorizontalInset = .06; style.VerticalInset = .1;
+                style.BackgroundColor = "#162536"; style.BackgroundOpacity = .9;
+                style.BackgroundPaddingX = 28; style.BackgroundPaddingY = 14;
+                style.Motion = DynamicTitlePreset.DefaultMotionFor(presetId);
+                break;
+            case "title.box-reveal":
+                style.Content = "圆角底板标题";
+                style.FontSize = 76; style.Bold = true;
+                style.BackgroundColor = "#FF9957"; style.ForegroundColor = "#17191E";
+                style.BackgroundPaddingX = 38; style.BackgroundPaddingY = 20; style.BackgroundCornerRadius = 18;
+                style.Motion = DynamicTitlePreset.DefaultMotionFor(presetId);
+                break;
+            case "title.outline-pop":
+                style.Content = "醒目大字";
+                style.FontSize = 128; style.Bold = true; style.ForegroundColor = "#FFE36B";
+                style.OutlineEnabled = true; style.OutlineThickness = 8; style.OutlineColor = "#20202B";
+                style.ShadowEnabled = true; style.ShadowBlur = 0; style.ShadowOffsetX = 8; style.ShadowOffsetY = 8;
+                style.Motion = DynamicTitlePreset.DefaultMotionFor(presetId);
+                break;
+            case "title.crawl":
+                style.Content = "横向滚动字幕 · 感谢观看";
+                style.FontSize = 54; style.VerticalAlignment = "Bottom"; style.VerticalInset = .12;
+                style.OutlineEnabled = true; style.OutlineThickness = 3;
+                style.Motion = DynamicTitlePreset.DefaultMotionFor(presetId);
+                break;
+            case "title.zoom":
+                style.Content = "缓慢推进标题";
+                style.FontSize = 96; style.Bold = true; style.LetterSpacing = 4;
+                style.ShadowEnabled = true; style.ShadowBlur = 16;
+                style.Motion = DynamicTitlePreset.DefaultMotionFor(presetId);
                 break;
             case "title.credits":
                 style.FontSize = 54; style.VerticalAlignment = "Bottom";
                 style.HorizontalAlignment = "Center"; style.ShadowEnabled = true;
+                style.Content = "制作人员\n导演\n摄影\n剪辑\n感谢观看";
+                style.Motion = new TitleMotion { CreditsSpeed = .45 };
                 break;
         }
         return style;
     }
 
-    private void ApplyPresetToSelectedClip(LibraryItem item)
+    private void ApplyPresetToSelectedClip(LibraryItem item, string? standaloneEdge = null)
     {
         if (_selectedClip is null)
         {
@@ -1785,20 +1900,31 @@ public partial class MainWindow
         }
         if (item.Category == 3)
         {
-            if (!TryFindTransitionBoundary(_selectedTrack, _selectedClip, null,
-                out TimelineClip? incoming) || incoming is null)
+            SaveUndoState();
+            TimelineClip? incoming = null;
+            TimelineClip? prior = null;
+            if (TryFindTransitionBoundary(_selectedTrack, _selectedClip, null, out TimelineClip? pairedIncoming) &&
+                pairedIncoming is not null)
             {
-                StatusText.Text = "转场需要同一轨道上紧邻的两段视频或图片 · EDIT-TRANSITION-BOUNDARY";
+                incoming = pairedIncoming;
+                prior = _selectedTrack.Clips.FirstOrDefault(candidate => candidate != incoming &&
+                    BoundaryCrossfade.IsVisible(candidate) &&
+                    Math.Abs(candidate.StartSeconds + candidate.DurationSeconds - incoming.StartSeconds) <=
+                    .5 / Math.Max(1, _project.Sequence.FramesPerSecond));
+            }
+            else if (BoundaryCrossfade.IsVisible(_selectedClip))
+            {
+                incoming = _selectedClip;
+            }
+            if (incoming is null)
+            {
+                StatusText.Text = "该对象不可见，无法添加转场 · EDIT-TRANSITION-VISIBILITY";
                 return;
             }
-            SaveUndoState();
-            incoming.Transitions.RemoveAll(transition => transition.Edge == "In");
-            var addedTransition = new ClipTransition { PresetId = item.Id, Name = item.Name, Edge = "In" };
+            string edge = prior is null ? (standaloneEdge ?? "In") : "In";
+            incoming.Transitions.RemoveAll(transition => transition.Edge.Equals(edge, StringComparison.OrdinalIgnoreCase));
+            var addedTransition = new ClipTransition { PresetId = item.Id, Name = item.Name, Edge = edge };
             incoming.Transitions.Add(addedTransition);
-            TimelineClip prior = _selectedTrack.Clips.First(candidate =>
-                candidate.Id != incoming.Id &&
-                Math.Abs(candidate.StartSeconds + candidate.DurationSeconds - incoming.StartSeconds) <=
-                    .5 / Math.Max(1, _project.Sequence.FramesPerSecond));
             _selectedTransition = addedTransition;
             _selectedTransitionIncoming = incoming;
             _selectedTransitionPrior = prior;
@@ -1828,16 +1954,25 @@ public partial class MainWindow
         TimelineClip? clip = track?.Clips.OrderByDescending(candidate => candidate.StartSeconds)
             .FirstOrDefault(candidate => time >= candidate.StartSeconds &&
                 time < candidate.StartSeconds + candidate.DurationSeconds);
-        if (item.Category == 3 && track is not null &&
-            TryFindTransitionBoundary(track, clip, time, out TimelineClip? incoming))
-            clip = incoming;
+        string? standaloneEdge = null;
+        if (item.Category == 3 && track is not null)
+        {
+            if (TryFindTransitionBoundary(track, clip, time, out TimelineClip? incoming) && incoming is not null)
+                clip = incoming;
+            else if (clip is not null)
+            {
+                double fromStart = time - clip.StartSeconds;
+                double fromEnd = clip.StartSeconds + clip.DurationSeconds - time;
+                standaloneEdge = fromStart <= fromEnd ? "In" : "Out";
+            }
+        }
         if (clip is null)
         {
             StatusText.Text = "请将特效或转场放在片段上";
             return;
         }
         SelectClip(clip);
-        ApplyPresetToSelectedClip(item);
+        ApplyPresetToSelectedClip(item, standaloneEdge);
     }
 
     private bool TryFindTransitionBoundary(TimelineTrack track, TimelineClip? selected,
@@ -1845,10 +1980,10 @@ public partial class MainWindow
     {
         double tolerance = .5 / Math.Max(1, _project.Sequence.FramesPerSecond);
         var pairs = from next in track.Clips
-            where next.Kind is ClipKind.Video or ClipKind.Image or ClipKind.Color
+            where BoundaryCrossfade.IsVisible(next)
             from previous in track.Clips
             where previous.Id != next.Id &&
-                previous.Kind is ClipKind.Video or ClipKind.Image or ClipKind.Color &&
+                BoundaryCrossfade.IsVisible(previous) &&
                 Math.Abs(previous.StartSeconds + previous.DurationSeconds - next.StartSeconds) <= tolerance
             select new { Next = next, Previous = previous };
         var choice = dropTime is double time
@@ -2494,12 +2629,7 @@ public partial class MainWindow
 
     private void TimelineScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs args)
     {
-        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
-            TimelineZoomSlider.Value = Math.Clamp(TimelineZoomSlider.Value * (args.Delta > 0 ? 1.1 : 0.9), TimelineZoomSlider.Minimum, TimelineZoomSlider.Maximum);
-        else if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-            TimelineScrollViewer.ScrollToVerticalOffset(TimelineScrollViewer.VerticalOffset - args.Delta);
-        else
-            TimelineScrollViewer.ScrollToHorizontalOffset(TimelineScrollViewer.HorizontalOffset - args.Delta);
+        ScrollTimelineWheel(args.Delta, Keyboard.Modifiers, horizontal: false);
         args.Handled = true;
     }
 

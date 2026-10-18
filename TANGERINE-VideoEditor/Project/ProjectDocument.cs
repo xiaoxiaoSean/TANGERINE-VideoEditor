@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -393,6 +393,14 @@ public sealed class ClipText
     public bool Underline { get; set; }
     public string ForegroundColor { get; set; } = "#FFFFFF";
     public string? BackgroundColor { get; set; }
+    /// <summary>Sequence-pixel padding around the glyph bounds; independent from alignment.</summary>
+    public double BackgroundPaddingX { get; set; }
+    public double BackgroundPaddingY { get; set; }
+    public double BackgroundCornerRadius { get; set; }
+    public double BackgroundOpacity { get; set; } = 1;
+    /// <summary>Safe-area inset as a fraction of the sequence, applied to edge-aligned titles.</summary>
+    public double HorizontalInset { get; set; }
+    public double VerticalInset { get; set; }
     public bool OutlineEnabled { get; set; }
     public string OutlineColor { get; set; } = "#000000";
     public double OutlineThickness { get; set; } = 2;
@@ -402,6 +410,9 @@ public sealed class ClipText
     public double ShadowOpacity { get; set; } = 0.75;
     public double ShadowOffsetX { get; set; } = 4;
     public double ShadowOffsetY { get; set; } = 4;
+    public string GlowColor { get; set; } = "#53C5EC";
+    public double GlowRadius { get; set; } = 24;
+    public double GlowOpacity { get; set; } = .85;
     public double LetterSpacing { get; set; }
     public double LineHeight { get; set; } = 1.2;
     public string HorizontalAlignment { get; set; } = "Center";
@@ -449,6 +460,20 @@ public sealed class TitleMotion
     public double? PopSeconds { get; set; }
     public double? PopStartScale { get; set; }
     public double? PopOvershoot { get; set; }
+
+    /// <summary>Named interpolation shared by numeric preview and FFmpeg expressions.</summary>
+    public string? Easing { get; set; }
+    /// <summary>Continuous horizontal crawl: duration, canvas-width travel and direction.</summary>
+    public double? ScrollSeconds { get; set; }
+    public double? ScrollDistance { get; set; }
+    public string? ScrollDirection { get; set; }
+    /// <summary>Continuous zoom: duration and independent start/end scale factors.</summary>
+    public double? ZoomSeconds { get; set; }
+    public double? ZoomStartScale { get; set; }
+    public double? ZoomEndScale { get; set; }
+
+    /// <summary>Credits: normalized scroll speed (screen heights per clip).</summary>
+    public double? CreditsSpeed { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? AdditionalData { get; set; }

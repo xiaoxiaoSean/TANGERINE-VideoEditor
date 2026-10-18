@@ -89,6 +89,10 @@ public partial class MainWindow
     private void OpenObjectToolPage(TimelineClip clip, string title, Func<TimelineClip, Action, UIElement> builder)
     {
         OpenSettingsCategory(title, builder(clip, () => ShowSelectedObjectSettings()));
+        // Rebuild the same inspector with the current model after an external
+        // edit; its old event handlers otherwise retain stale model objects.
+        string id = clip.Id;
+        _mcpInspectorRefresh = () => OpenObjectToolPage(McpClip(id), title, builder);
     }
 
     private UIElement BuildSpeedTool(TimelineClip clip, Action back)

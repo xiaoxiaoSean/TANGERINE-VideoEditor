@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="TANGERINE-VideoEditor.Automation/TANGERINE-VideoEditor.Automation.csproj" />
+  <Project Path="TANGERINE-VideoEditor.Mcp/TANGERINE-VideoEditor.Mcp.csproj" />
   <Project Path="TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj" />
 </Solution>

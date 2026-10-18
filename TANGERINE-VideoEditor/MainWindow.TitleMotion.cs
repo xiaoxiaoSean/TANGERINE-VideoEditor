@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -57,14 +57,29 @@ public partial class MainWindow
                 case "title.counter":
                     summary.Text = "在文字内容里写成“起始 → 结束”（例如 0 → 100），数字会在计数时长内从起始值变到结束值。";
                     break;
+                case "title.box-reveal":
                 case "title.fade":
                     summary.Text = $"淡入与淡出加起来不会超过片段长度（{clip.DurationSeconds:0.##} 秒），超出时会按比例缩短。";
                     break;
+                case "title.clean-lower-third":
                 case "title.slide":
                     summary.Text = "文字从所选方向滑到原位。开始延迟期间，文字停在起始位置。";
                     break;
+                case "title.outline-pop":
                 case "title.pop":
                     summary.Text = "文字从起始大小弹到正常大小，回弹幅度越大弹得越过头。";
+                    break;
+                case "title.kinetic":
+                    summary.Text = "标题同时滑入和弹跳缩放，两组运动参数均可独立调整。";
+                    break;
+                case "title.crawl":
+                    summary.Text = "字幕从画面一侧持续横向滚动到另一侧；可调整方向、完整路程、时长和缓动。";
+                    break;
+                case "title.zoom":
+                    summary.Text = "文字在指定时长内持续从起始比例缩放到结束比例；结束比例较小即为缓慢拉远。";
+                    break;
+                case "title.credits":
+                    summary.Text = "文字会从画面底部向上滚动；速度越大，滚动越快。";
                     break;
             }
         }
@@ -112,6 +127,35 @@ public partial class MainWindow
 
         void Delay() => Number("开始延迟（秒）", "动画开始前先等待的时间", DynamicTitlePreset.DelaySeconds(clip), 0, 60,
             value => Settings().DelaySeconds = value);
+
+        void Choice(string label, string[] names, string[] ids, string current, Action<string> assign)
+        {
+            body.Children.Add(new TextBlock { Text = label, Foreground = Brush("#D9DCE3") });
+            var choice = new ComboBox
+            {
+                ItemsSource = names, SelectedIndex = Math.Max(0, Array.IndexOf(ids, current)),
+                Margin = new Thickness(0, 3, 0, 8), Background = Brush("#282B32"),
+                Foreground = Brushes.White, BorderBrush = Brush("#565B65")
+            };
+            choice.SelectionChanged += (_, _) =>
+            {
+                if (choice.SelectedIndex < 0) return;
+                string chosen = ids[choice.SelectedIndex];
+                if (chosen == current) return;
+                captureUndo(); current = chosen; assign(chosen); Applied($"已更新“{label}”");
+            };
+            body.Children.Add(choice);
+        }
+
+        void SlideFields()
+        {
+            Number("滑入用时（秒）", "从起始位置滑到原位所用的时间", DynamicTitlePreset.SlideSeconds(clip), .05, 60,
+                value => Settings().SlideSeconds = value);
+            Number("滑入距离（占画面宽或高的 %）", "左右方向按画面宽度计算，上下方向按画面高度计算",
+                DynamicTitlePreset.SlideDistance(clip) * 100, 0, 200, value => Settings().SlideDistance = value / 100);
+            Choice("滑入方向", ["从左侧滑入", "从右侧滑入", "从上方滑入", "从下方滑入"],
+                ["Left", "Right", "Top", "Bottom"], DynamicTitlePreset.SlideFrom(clip), value => Settings().SlideFrom = value);
+        }
 
         switch (clip.TemplateId)
         {
@@ -163,6 +207,7 @@ public partial class MainWindow
                 Delay();
                 break;
             }
+            case "title.box-reveal":
             case "title.fade":
             {
                 (double fadeIn, double fadeOut) = DynamicTitlePreset.FadeSeconds(clip);
@@ -172,37 +217,13 @@ public partial class MainWindow
                     value => Settings().FadeOutSeconds = value);
                 break;
             }
+            case "title.clean-lower-third":
             case "title.slide":
-            {
-                Number("滑入用时（秒）", "从起始位置滑到原位所用的时间", DynamicTitlePreset.SlideSeconds(clip), .05, 60,
-                    value => Settings().SlideSeconds = value);
-                Number("滑入距离（占画面宽或高的 %）", "左右方向按画面宽度计算，上下方向按画面高度计算",
-                    DynamicTitlePreset.SlideDistance(clip) * 100, 0, 200,
-                    value => Settings().SlideDistance = value / 100);
-                string[] directionNames = ["从左侧滑入", "从右侧滑入", "从上方滑入", "从下方滑入"];
-                string[] directionIds = ["Left", "Right", "Top", "Bottom"];
-                body.Children.Add(new TextBlock { Text = "滑入方向", Foreground = Brush("#D9DCE3") });
-                var from = new ComboBox
-                {
-                    ItemsSource = directionNames,
-                    SelectedIndex = Math.Max(0, Array.IndexOf(directionIds, DynamicTitlePreset.SlideFrom(clip))),
-                    Margin = new Thickness(0, 3, 0, 8), Background = Brush("#282B32"),
-                    Foreground = Brushes.White, BorderBrush = Brush("#565B65")
-                };
-                from.SelectionChanged += (_, _) =>
-                {
-                    if (from.SelectedIndex < 0) return;
-                    string chosen = directionIds[from.SelectedIndex];
-                    if (chosen == DynamicTitlePreset.SlideFrom(clip)) return;
-                    captureUndo();
-                    Settings().SlideFrom = chosen;
-                    Applied("已更新“滑入方向”");
-                };
-                body.Children.Add(from);
-                Delay();
+                SlideFields(); Delay();
                 break;
-            }
+            case "title.outline-pop":
             case "title.pop":
+            case "title.kinetic":
             {
                 Number("弹跳用时（秒）", "从起始大小弹到正常大小所用的时间", DynamicTitlePreset.PopSeconds(clip), .05, 60,
                     value => Settings().PopSeconds = value);
@@ -212,10 +233,37 @@ public partial class MainWindow
                 Number("回弹幅度（%）", "越大，文字越会短暂弹得比正常大小更大",
                     DynamicTitlePreset.PopOvershoot(clip) * 100, 0, 100,
                     value => Settings().PopOvershoot = value / 100);
+                if (clip.TemplateId == "title.kinetic") SlideFields();
                 Delay();
                 break;
             }
+            case "title.crawl":
+                Number("滚动时长（秒）", "滚动完整路程所需的时间；超过片段时长时自动适配",
+                    DynamicTitlePreset.ScrollSeconds(clip), .05, 3600, value => Settings().ScrollSeconds = value);
+                Number("滚动路程（画面宽度的 %）", "以文字原位为中点，起止各占一半路程",
+                    DynamicTitlePreset.ScrollDistance(clip) * 100, 0, 800, value => Settings().ScrollDistance = value / 100);
+                Choice("滚动方向", ["从右向左", "从左向右"], ["Left", "Right"],
+                    DynamicTitlePreset.ScrollDirection(clip), value => Settings().ScrollDirection = value);
+                Delay();
+                break;
+            case "title.zoom":
+                Number("缩放时长（秒）", "从起始比例连续变化到结束比例所需时间",
+                    DynamicTitlePreset.ZoomSeconds(clip), .05, 3600, value => Settings().ZoomSeconds = value);
+                Number("起始比例（%）", "动画开始前的文字大小", DynamicTitlePreset.ZoomStartScale(clip) * 100,
+                    5, 800, value => Settings().ZoomStartScale = value / 100);
+                Number("结束比例（%）", "动画完成后的文字大小", DynamicTitlePreset.ZoomEndScale(clip) * 100,
+                    5, 800, value => Settings().ZoomEndScale = value / 100);
+                Delay();
+                break;
+            case "title.credits":
+                Number("滚动速度（画面高度/片段）", "控制片尾文字向上滚动的速度", style.Motion?.CreditsSpeed ?? .45,
+                    .05, 4, value => Settings().CreditsSpeed = value);
+                break;
         }
+
+        if (DynamicTitlePreset.HasSlide(clip) || DynamicTitlePreset.HasPop(clip) || clip.TemplateId is "title.crawl" or "title.zoom")
+            Choice("缓动曲线", ["匀速", "加速进入", "减速到位", "平滑起止"],
+                ["Linear", "EaseIn", "EaseOut", "Smooth"], DynamicTitlePreset.Easing(clip), value => Settings().Easing = value);
 
         var reset = new Button
         {

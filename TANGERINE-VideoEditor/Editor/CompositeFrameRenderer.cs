@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows.Media.Imaging;
@@ -239,92 +239,19 @@ public static class CompositeFrameRenderer
                     $":h='max(1,ih*{VisualEffectPipeline.Number(Math.Clamp(sy, .05, 8))})'";
                 double rotation = ClipAnimation.Evaluate(clip, "RotationDegrees", sampleTime) * Math.PI / 180;
                 double opacity = Math.Clamp(ClipAnimation.Evaluate(clip, "Opacity", sampleTime), 0, 1);
-                foreach (ClipTransition transition in clip.Transitions)
+                TimelineTrack transitionTrack = project.Tracks.First(track => track.Clips.Contains(clip));
+                int transitionIndex = 0;
+                foreach (ClipTransition transition in TransitionRenderPlan.ForClip(transitionTrack, clip,
+                    project.Sequence.FramesPerSecond))
                 {
-                    if (layer.HeldPrior &&
-                        transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!layer.HeldPrior && transition.PresetId is ("transition.crossfade" or "transition.dissolve") &&
-                        transition.Edge.Equals("In", StringComparison.OrdinalIgnoreCase) &&
-                        project.Tracks.Any(track => track.Clips.Contains(clip) &&
-                            BoundaryCrossfade.TryGetPrior(track, clip,
-                                project.Sequence.FramesPerSecond, out _, out _))) continue;
-                    double duration = Math.Min(clip.DurationSeconds / 2, Math.Max(0, transition.DurationSeconds));
-                    if (duration <= .000001) continue;
-                    bool outgoing = transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase);
-                    double progress = outgoing
-                        ? Math.Clamp((clip.DurationSeconds - localSeconds) / duration, 0, 1)
-                        : Math.Clamp(localSeconds / duration, 0, 1);
-                    double strength = TransitionSettings.Strength(transition);
-                    string mask = transition.PresetId switch
-                    {
-                        "transition.wipe-left" => $"lte(X/W,{VisualEffectPipeline.Number(progress)})",
-                        "transition.wipe-right" => $"gte(X/W,{VisualEffectPipeline.Number(1 - progress)})",
-                        "transition.wipe-up" => $"lte(Y/H,{VisualEffectPipeline.Number(progress)})",
-                        "transition.wipe-down" => $"gte(Y/H,{VisualEffectPipeline.Number(1 - progress)})",
-                        "transition.circle" or "transition.circle-open" => $"lte(hypot(X-W/2,Y-H/2)/hypot(W/2,H/2),{VisualEffectPipeline.Number(progress)})",
-                        "transition.diamond" => $"lte((abs(X-W/2)/(W/2)+abs(Y-H/2)/(H/2))/2,{VisualEffectPipeline.Number(progress)})",
-                        "transition.split" => $"lte(abs(X-W/2)/(W/2),{VisualEffectPipeline.Number(progress)})",
-                        "transition.page" => $"lte(X/W+{VisualEffectPipeline.Number(.18 * strength)}*sin(PI*Y/H),{VisualEffectPipeline.Number(progress)}*{VisualEffectPipeline.Number(1 + .18 * strength)})",
-                        "transition.glitch" => $"lte(X/W,clip({VisualEffectPipeline.Number(progress)}+{VisualEffectPipeline.Number(.12 * strength)}*sin(31*Y/H+18*{VisualEffectPipeline.Number(localSeconds)}),0,1))",
-                        "transition.film" or "transition.shake" => $"lte(Y/H,clip({VisualEffectPipeline.Number(progress)}+{VisualEffectPipeline.Number(.08 * strength)}*sin(10*X/W+{VisualEffectPipeline.Number(localSeconds * 16)}),0,1))",
-                        _ => string.Empty
-                    };
-                    if (mask.Length > 0)
-                        filters += $",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*{VisualEffectPipeline.EscapeExpression(mask)}'";
-                    else if (transition.PresetId is "transition.zoom-in" or "transition.zoom-out" or "transition.zoom")
-                    {
-                        // The still graph has one frame, so evaluate the same
-                        // zoom formula at the playhead rather than using FFmpeg t.
-                        double range = .5 * strength;
-                        double zoom = transition.PresetId is "transition.zoom-in" or "transition.zoom"
-                            ? 1 - range + range * progress : 1 + range - range * progress;
-                        filters += $",scale=w='max(1,iw*{VisualEffectPipeline.Number(zoom)})'" +
-                            $":h='max(1,ih*{VisualEffectPipeline.Number(zoom)})'";
-                        pivotDeltaX *= zoom;
-                        pivotDeltaY *= zoom;
-                        opacity *= progress;
-                    }
-                    else if (transition.PresetId is "transition.spin" or "transition.rotate")
-                    {
-                        rotation += (1 - progress) * Math.PI * 2 * TransitionSettings.Turns(transition);
-                        opacity *= progress;
-                    }
-                    else if (transition.PresetId is "transition.blur" or "transition.blur-dissolve")
-                    {
-                        if (progress < 1 && strength >= .01)
-                            filters += $",gblur=sigma={VisualEffectPipeline.Number(9 * strength)}";
-                        opacity *= progress;
-                    }
-                    else if (transition.PresetId is "transition.flash" or "transition.light-leak")
-                    {
-                        double flash = Math.Min(1, (1 - progress) *
-                            (transition.PresetId == "transition.flash" ? .85 : .55) * strength);
-                        filters += $",eq=brightness={VisualEffectPipeline.Number(flash)}";
-                        opacity *= progress;
-                    }
-                    else if (transition.PresetId is "transition.dip-black" or "transition.dip-white")
-                    {
-                        // Pull the incoming/outgoing picture toward a solid
-                        // endpoint rather than treating both dips as fades.
-                        double dip = 1 - progress;
-                        if (transition.PresetId == "transition.dip-white")
-                            filters += $",eq=brightness={VisualEffectPipeline.Number(dip)}";
-                        else filters += $",eq=brightness={VisualEffectPipeline.Number(-dip)}";
-                        opacity *= progress;
-                    }
-                    else if (transition.PresetId is not ("transition.slide-left" or "transition.slide-right" or
-                        "transition.push-up" or "transition.push-down")) opacity *= progress;
+                    if (layer.HeldPrior && transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase)) continue;
+                    filters += TransitionRenderPlan.BuildFilters(transition, clip.DurationSeconds,
+                        VisualEffectPipeline.Number(localSeconds), $"stilltr{index}x{transitionIndex++}", canvasWidth);
                 }
-                double incomingFadeDuration = project.Tracks.Where(track => track.Clips.Contains(clip))
-                    .Select(track => BoundaryCrossfade.TryGetTransition(track, clip,
-                        project.Sequence.FramesPerSecond, out _, out ClipTransition? selected,
-                        out double fade) && selected?.PresetId is ("transition.crossfade" or "transition.dissolve") ? fade : 0)
-                    .FirstOrDefault();
-                if (!layer.HeldPrior && incomingFadeDuration > 0 &&
-                    localSeconds < incomingFadeDuration)
-                {
-                    opacity *= Math.Clamp(localSeconds / incomingFadeDuration, 0, 1);
-                }
+                if (layer.HeldPrior && TransitionRenderPlan.HeldBoundary(transitionTrack, clip,
+                    project.Sequence.FramesPerSecond) is { } heldBoundary)
+                    filters += TransitionRenderPlan.BuildHeldFilters(heldBoundary.Transition,
+                        heldBoundary.ClipDuration, VisualEffectPipeline.Number(time - heldBoundary.Start));
                 if (Math.Abs(rotation) > .00001)
                 {
                     string angle = VisualEffectPipeline.Number(rotation);
@@ -336,24 +263,6 @@ public static class CompositeFrameRenderer
                 graph.AppendLine($"[{layer.Input}:v]{filters}[{local}];");
                 string x = $"(W-w)/2+{VisualEffectPipeline.Number(ClipAnimation.Evaluate(clip, "PositionX", sampleTime) * positionScaleX + pivotOffsetX)}";
                 string y = $"(H-h)/2+{VisualEffectPipeline.Number(ClipAnimation.Evaluate(clip, "PositionY", sampleTime) * positionScaleY + pivotOffsetY)}";
-                foreach (ClipTransition transition in clip.Transitions.Where(item => item.PresetId is
-                    "transition.slide-left" or "transition.slide-right" or "transition.push-up" or "transition.push-down"))
-                {
-                    double duration = Math.Min(clip.DurationSeconds / 2, Math.Max(0, transition.DurationSeconds));
-                    if (duration <= .000001) continue;
-                    bool outgoing = transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase);
-                    double progress = outgoing
-                        ? Math.Clamp((clip.DurationSeconds - localSeconds) / duration, 0, 1)
-                        : Math.Clamp(localSeconds / duration, 0, 1);
-                    double offset = 1 - progress;
-                    switch (transition.PresetId)
-                    {
-                        case "transition.slide-left": x += $"+{VisualEffectPipeline.Number(offset * canvasWidth)}"; break;
-                        case "transition.slide-right": x += $"-{VisualEffectPipeline.Number(offset * canvasWidth)}"; break;
-                        case "transition.push-up": y += $"+{VisualEffectPipeline.Number(offset * canvasHeight)}"; break;
-                        case "transition.push-down": y += $"-{VisualEffectPipeline.Number(offset * canvasHeight)}"; break;
-                    }
-                }
                 // Title bitmaps are centered; this compositor applies their
                 // animated placement once, as in the full MP4 export.
                 string mode = VisualEffectPipeline.BlendModeToFfmpeg(clip.BlendMode);

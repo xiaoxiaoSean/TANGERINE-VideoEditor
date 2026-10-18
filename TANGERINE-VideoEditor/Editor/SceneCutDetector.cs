@@ -114,24 +114,10 @@ public static class SceneCutDetector
             throw new InvalidOperationException(
                 $"场景检测进程异常退出（代码 {process.ExitCode}），请确认视频文件可以正常读取。");
 
-        // Parse output for scene cuts
-        // Format: frame:123 pts:5120 pts_time:5.120 lavfi.scene_score=0.456
-        var lines = output.Split('\n');
-        foreach (var line in lines)
-        {
-            if (line.Contains("pts_time") && line.Contains("lavfi.scene_score"))
-            {
-                double? time = ExtractValue(line, "pts_time:");
-                double? score = ExtractValue(line, "lavfi.scene_score=");
-                int? frame = ExtractIntValue(line, "frame:");
-
-                if (time.HasValue && score.HasValue && frame.HasValue)
-                {
-                    // The seek restarted the clock at zero; make it absolute.
-                    cuts.Add(new SceneCut(time.Value + seekSeconds, frame.Value, score.Value));
-                }
-            }
-        }
+        // metadata=print emits the frame header and scene score on separate
+        // lines. Keep their association; requiring both on one line silently
+        // reported "no cuts" even when FFmpeg detected every actual boundary.
+        cuts.AddRange(ParseMetadata(output, seekSeconds));
 
         // Extract duration from stderr
         // Format: Duration: 00:01:23.45
@@ -156,6 +142,30 @@ public static class SceneCutDetector
         }
 
         return new DetectionResult(cuts.OrderBy(c => c.TimeSeconds).ToList(), duration, totalFrames);
+    }
+
+    internal static List<SceneCut> ParseMetadata(string output, double seekSeconds = 0)
+    {
+        var cuts = new List<SceneCut>();
+        double? time = null;
+        int? frame = null;
+        foreach (string line in output.Split('\n'))
+        {
+            if (line.Contains("pts_time:", StringComparison.Ordinal))
+            {
+                time = ExtractValue(line, "pts_time:");
+                frame = ExtractIntValue(line, "frame:");
+            }
+            double? score = ExtractValue(line, "lavfi.scene_score=");
+            if (time is double seconds && frame is int number && score is double strength &&
+                double.IsFinite(seconds) && seconds >= 0 && double.IsFinite(strength) && strength >= 0)
+            {
+                cuts.Add(new SceneCut(seconds + seekSeconds, number, strength));
+                time = null;
+                frame = null;
+            }
+        }
+        return cuts.OrderBy(cut => cut.TimeSeconds).ToList();
     }
 
     /// <summary>
@@ -227,9 +237,10 @@ public static class SceneCutDetector
         int start = line.IndexOf(prefix);
         if (start < 0) return null;
         start += prefix.Length;
+        while (start < line.Length && char.IsWhiteSpace(line[start])) start++;
 
         int end = start;
-        while (end < line.Length && (char.IsDigit(line[end]) || line[end] == '.' || line[end] == '-'))
+        while (end < line.Length && (char.IsDigit(line[end]) || line[end] is '.' or '-' or '+' or 'e' or 'E'))
             end++;
 
         if (end > start && double.TryParse(line.Substring(start, end - start),
@@ -244,6 +255,7 @@ public static class SceneCutDetector
         int start = line.IndexOf(prefix);
         if (start < 0) return null;
         start += prefix.Length;
+        while (start < line.Length && char.IsWhiteSpace(line[start])) start++;
 
         int end = start;
         while (end < line.Length && char.IsDigit(line[end]))

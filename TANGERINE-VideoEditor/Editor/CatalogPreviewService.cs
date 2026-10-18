@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TANGERINE_VideoEditor.Project;
@@ -15,6 +16,8 @@ namespace TANGERINE_VideoEditor.Editor;
 public static class CatalogPreviewService
 {
     private static readonly object PreviewProcessGate = new();
+    private static readonly object SampleImagesGate = new();
+    private static readonly SemaphoreSlim RenderGate = new(1, 1);
     private static CancellationTokenSource? _currentPreviewCancellation;
     private static Process? _currentPreviewProcess;
 
@@ -29,94 +32,81 @@ public static class CatalogPreviewService
     /// <summary>
     /// Plays an effect preview: shows one image with the effect applied for 5 seconds.
     /// </summary>
-    public static async Task PlayEffectPreviewAsync(
+    public static Task PlayEffectPreviewAsync(
         string effectId,
         string ffmpegPath,
         Action<string> playVideoCallback,
         CancellationToken cancellationToken = default,
         Action<double>? progressCallback = null)
     {
-        StopPreview();
-        _currentPreviewCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        try
+        return PlayCachedPreviewAsync("effect|" + effectId, ffmpegPath, async (outputPath, token) =>
         {
             EnsureSampleImagesExist(ffmpegPath);
-
-            string outputPath = Path.Combine(Path.GetTempPath(), $"effect_preview_{Guid.NewGuid():N}.mp4");
-
-            // Convert image to 5-second video with effect applied
-            string effectFilter = GetEffectFilter(effectId);
-            string arguments = $"-loop 1 -i \"{Image1Path}\" -t 5 {effectFilter} " +
-                             $"-c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 30 -y \"{outputPath}\"";
-
-            await RunFfmpegAsync(ffmpegPath, arguments, _currentPreviewCancellation.Token, progressCallback, 0, 100, 5);
-
-            if (!_currentPreviewCancellation.Token.IsCancellationRequested && File.Exists(outputPath))
+            PreviewEncodingProfile profile = await PreviewEncodingProfile.SelectAsync(ffmpegPath, token)
+                .ConfigureAwait(false);
+            string[] input = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-loop", "1",
+                "-framerate", "30", "-i", Image1Path, "-t", "5", "-vf", GetEffectFilters(effectId),
+                "-an", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart"];
+            try
             {
-                playVideoCallback(outputPath);
+                await RunFfmpegAsync(ffmpegPath, [.. input, .. profile.VideoArguments, outputPath],
+                    token, progressCallback, 0, 100, 5).ConfigureAwait(false);
             }
-        }
-        catch (OperationCanceledException) { }
+            catch (ExportException exception) when (exception.StageCode == ExportStageCode.Encode &&
+                profile.IsHardwareAccelerated && !token.IsCancellationRequested)
+            {
+                await RunFfmpegAsync(ffmpegPath, [.. input, .. PreviewEncodingProfile.Software.VideoArguments, outputPath],
+                    token, progressCallback, 0, 100, 5).ConfigureAwait(false);
+                profile.MarkUnavailable();
+            }
+        }, playVideoCallback, cancellationToken, progressCallback);
     }
 
     /// <summary>
     /// Plays a transition preview: Image1 -> Transition -> Image2 (5 seconds total).
     /// Structure: 2s Image1 + 1s Transition + 2s Image2
     /// </summary>
-    public static async Task PlayTransitionPreviewAsync(
+    public static Task PlayTransitionPreviewAsync(
         string transitionId,
         string ffmpegPath,
         Action<string> playVideoCallback,
         CancellationToken cancellationToken = default,
         Action<double>? progressCallback = null)
     {
-        StopPreview();
-        _currentPreviewCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        try
+        return PlayCachedPreviewAsync("transition|" + transitionId, ffmpegPath, async (outputPath, token) =>
         {
             EnsureSampleImagesExist(ffmpegPath);
-
-            string outputPath = Path.Combine(Path.GetTempPath(), $"transition_preview_{Guid.NewGuid():N}.mp4");
-
-            // Convert images to video streams
-            string video1 = Path.Combine(Path.GetTempPath(), $"temp_vid1_{Guid.NewGuid():N}.mp4");
-            string video2 = Path.Combine(Path.GetTempPath(), $"temp_vid2_{Guid.NewGuid():N}.mp4");
-
-            // Create 3-second video from each image
-            await RunFfmpegAsync(ffmpegPath,
-                $"-loop 1 -i \"{Image1Path}\" -t 3 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 30 -y \"{video1}\"",
-                _currentPreviewCancellation.Token, progressCallback, 0, 33, 3);
-
-            await RunFfmpegAsync(ffmpegPath,
-                $"-loop 1 -i \"{Image2Path}\" -t 3 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 30 -y \"{video2}\"",
-                _currentPreviewCancellation.Token, progressCallback, 33, 33, 3);
-
-            // Apply transition between the two videos
-            string transitionFilter = GetTransitionFilter(transitionId);
-            string arguments = $"-i \"{video1}\" -i \"{video2}\" " +
-                             $"-filter_complex \"{transitionFilter}\" " +
-                             $"-map \"[out]\" -an -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 30 -t 5 -y \"{outputPath}\"";
-
-            await RunFfmpegAsync(ffmpegPath, arguments, _currentPreviewCancellation.Token, progressCallback, 66, 34, 5);
-
-            // Cleanup temp files
-            try { File.Delete(video1); } catch { }
-            try { File.Delete(video2); } catch { }
-
-            if (!_currentPreviewCancellation.Token.IsCancellationRequested && File.Exists(outputPath))
+            // A catalog demonstration is an ordinary five-second project.
+            // It uses the exact transition engine and default parameters used
+            // when this preset is applied to imported media. There is no
+            // preview-only xfade mapping or approximate substitute effect.
+            ProjectDocument project = CreateDemoProject();
+            MediaAsset first = DemoImage(Image1Path);
+            MediaAsset second = DemoImage(Image2Path);
+            project.Media.AddRange([first, second]);
+            project.Tracks[0].Clips.Add(new TimelineClip
             {
-                playVideoCallback(outputPath);
-            }
-        }
-        catch (OperationCanceledException) { }
+                Kind = ClipKind.Image, Name = "画面 A", MediaAssetId = first.Id,
+                DurationSeconds = 2
+            });
+            project.Tracks[0].Clips.Add(new TimelineClip
+            {
+                Kind = ClipKind.Image, Name = "画面 B", MediaAssetId = second.Id,
+                StartSeconds = 2, DurationSeconds = 3,
+                Transitions = [new ClipTransition { PresetId = transitionId, Name = transitionId, DurationSeconds = 1 }]
+            });
+            PreviewEncodingProfile profile = await PreviewEncodingProfile.SelectAsync(ffmpegPath, token)
+                .ConfigureAwait(false);
+            await TimelineExporter.ExportMp4Async(project, outputPath, new Dictionary<string, string>(),
+                new DemoProgress(progressCallback), token, previewEncoding: profile, encoderPath: ffmpegPath)
+                .ConfigureAwait(false);
+        }, playVideoCallback, cancellationToken, progressCallback);
     }
 
     /// <summary>
     /// Plays a text preset preview: Image with text animation for 5 seconds.
     /// </summary>
-    public static async Task PlayTextPreviewAsync(
+    public static Task PlayTextPreviewAsync(
         string presetId,
         string sampleText,
         string ffmpegPath,
@@ -125,41 +115,150 @@ public static class CatalogPreviewService
         CancellationToken cancellationToken = default,
         Action<double>? progressCallback = null)
     {
-        StopPreview();
-        _currentPreviewCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        try
+        bool isSticker = presetId.StartsWith("sticker.", StringComparison.Ordinal);
+        ClipText style = styleProvider(isSticker ? "sticker" : presetId);
+        style.Content = isSticker ? string.Empty : presetId switch
         {
-            string outputPath = Path.Combine(Path.GetTempPath(), $"text_preview_{Guid.NewGuid():N}.mp4");
-            // The sample goes through a file rather than the command line, so
-            // no character in it can break the filter graph.
-            string textFile = Path.Combine(Path.GetTempPath(), $"text_preview_{Guid.NewGuid():N}.txt");
+            "title.counter" => "0 → 100",
+            "title.credits" => $"{sampleText}\nDIRECTOR\nCAMERA\nEDITOR\nTHANK YOU",
+            _ => sampleText
+        };
+        if (isSticker)
+        {
+            BuiltinPreset preset = BuiltinCatalog.Stickers.FirstOrDefault(item => item.Id == presetId)
+                ?? throw new GraphicShapeException(GraphicShapeStageCode.Validate, "内置形状预设不存在。");
+            var sticker = new TimelineClip { Kind = ClipKind.Text, Text = style };
+            GraphicShape.FromPreset(preset, 960, 540).Save(sticker);
+        }
+        string key = "text|" + presetId + "|" + JsonSerializer.Serialize(style);
+        return PlayCachedPreviewAsync(key, ffmpegPath, async (outputPath, token) =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), $"tangerine-title-demo-{Guid.NewGuid():N}");
             try
             {
-                await File.WriteAllTextAsync(textFile, sampleText,
-                    new System.Text.UTF8Encoding(false), _currentPreviewCancellation.Token);
-
-                // The style is the preset's real one, so the demonstration shows
-                // what dropping it on the timeline will produce.
-                ClipText style = styleProvider(presetId);
-                string textFilter = GetTextFilter(presetId, style, textFile);
-                // Black stage by design: the text, not a background, is the subject.
-                string arguments = $"-f lavfi -i color=c=black:s=1920x1080:r=30 -t 5 {textFilter} " +
-                                 $"-c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 30 -y \"{outputPath}\"";
-
-                await RunFfmpegAsync(ffmpegPath, arguments, _currentPreviewCancellation.Token, progressCallback, 0, 100, 5);
+                Directory.CreateDirectory(directory);
+                ProjectDocument project = CreateDemoProject();
+                // Presets are authored at 1080p. Reduce every pixel-based field
+                // together to retain their proportions in the 540p demonstration.
+                ScaleDemoStyle(style, .5);
+                var clip = new TimelineClip
+                {
+                    Kind = ClipKind.Text, Name = sampleText, TemplateId = presetId,
+                    DurationSeconds = 5, Text = style
+                };
+                project.Tracks[0].Clips.Add(clip);
+                string titlePath = Path.Combine(directory, "title.png");
+                await RenderTitleOnStaAsync(() =>
+                {
+                    if (DynamicTitlePreset.HasChangingText(clip))
+                        titlePath = DynamicTitleFrames.Render(clip, project.Sequence, directory, token);
+                    else TitleBitmapRenderer.Render(clip, project.Sequence, titlePath);
+                }, token).ConfigureAwait(false);
+                PreviewEncodingProfile profile = await PreviewEncodingProfile.SelectAsync(ffmpegPath, token)
+                    .ConfigureAwait(false);
+                await TimelineExporter.ExportMp4Async(project, outputPath,
+                    new Dictionary<string, string> { [clip.Id] = titlePath },
+                    new DemoProgress(progressCallback), token, previewEncoding: profile, encoderPath: ffmpegPath)
+                    .ConfigureAwait(false);
             }
             finally
             {
-                try { if (File.Exists(textFile)) File.Delete(textFile); } catch (IOException) { }
+                try { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
             }
+        }, playVideoCallback, cancellationToken, progressCallback);
+    }
 
-            if (!_currentPreviewCancellation.Token.IsCancellationRequested && File.Exists(outputPath))
+    private static async Task PlayCachedPreviewAsync(string content, string ffmpegPath,
+        Func<string, CancellationToken, Task> render, Action<string> playVideoCallback,
+        CancellationToken cancellationToken, Action<double>? progressCallback)
+    {
+        using var previewCancellation = BeginPreview(cancellationToken);
+        CancellationToken token = previewCancellation.Token;
+        string outputPath = Path.Combine(Path.GetTempPath(), $"tangerine-catalog-{Guid.NewGuid():N}.mp4");
+        string key = CatalogPreviewCache.Key(ffmpegPath, content);
+        bool keepOutput = false;
+        bool entered = false;
+        try
+        {
+            // A cancelled render drains its FFmpeg process before the next
+            // expensive graph starts. Fast preset switching cannot accumulate
+            // CPU workers or competing GPU sessions in the background.
+            await RenderGate.WaitAsync(token).ConfigureAwait(false);
+            entered = true;
+            token.ThrowIfCancellationRequested();
+            if (!CatalogPreviewCache.TryCopy(key, outputPath))
             {
-                playVideoCallback(outputPath);
+                await render(outputPath, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                CatalogPreviewCache.Store(key, outputPath, token);
             }
+            token.ThrowIfCancellationRequested();
+            progressCallback?.Invoke(100);
+            playVideoCallback(outputPath);
+            keepOutput = true;
         }
         catch (OperationCanceledException) { }
+        finally
+        {
+            if (!keepOutput) DeleteTemporaryFile(outputPath);
+            if (entered) RenderGate.Release();
+            ClearPreviewCancellation(previewCancellation);
+        }
+    }
+
+    private static ProjectDocument CreateDemoProject()
+    {
+        ProjectDocument project = ProjectDocument.CreateDefault();
+        project.Sequence.Width = 960;
+        project.Sequence.Height = 540;
+        project.Sequence.FramesPerSecond = 30;
+        return project;
+    }
+
+    private static MediaAsset DemoImage(string path) => new()
+    {
+        Kind = MediaKind.Image, SourcePath = path, Width = 960, Height = 540
+    };
+
+    private sealed class DemoProgress(Action<double>? callback) : IProgress<double>
+    {
+        public void Report(double value) => callback?.Invoke(Math.Clamp(value * 100, 0, 100));
+    }
+
+    private static Task RenderTitleOnStaAsync(Action render, CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                render();
+                cancellationToken.ThrowIfCancellationRequested();
+                completion.TrySetResult();
+            }
+            catch (OperationCanceledException) { completion.TrySetCanceled(cancellationToken); }
+            catch (Exception exception) { completion.TrySetException(new ExportException(
+                ExportStageCode.Prepare, "绘制文字示例失败。", exception)); }
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        return completion.Task;
+    }
+
+    private static void ScaleDemoStyle(ClipText style, double factor)
+    {
+        style.FontSize *= factor;
+        style.OutlineThickness *= factor;
+        style.ShadowBlur *= factor;
+        style.ShadowOffsetX *= factor;
+        style.ShadowOffsetY *= factor;
+        style.GlowRadius *= factor;
+        style.LetterSpacing *= factor;
+        style.BackgroundPaddingX *= factor;
+        style.BackgroundPaddingY *= factor;
+        style.BackgroundCornerRadius *= factor;
     }
 
     /// <summary>
@@ -174,30 +273,56 @@ public static class CatalogPreviewService
             {
                 if (_currentPreviewProcess is { HasExited: false }) _currentPreviewProcess.Kill(true);
             }
-            catch (InvalidOperationException) { }
+            catch (Exception exception) when (exception is InvalidOperationException or
+                System.ComponentModel.Win32Exception or NotSupportedException) { }
             _currentPreviewProcess = null;
         }
     }
 
+    private static CancellationTokenSource BeginPreview(CancellationToken cancellationToken)
+    {
+        lock (PreviewProcessGate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            StopPreview();
+            _currentPreviewCancellation = source;
+            return source;
+        }
+    }
+
+    private static void DeleteTemporaryFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try { File.Delete(path); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void ClearPreviewCancellation(CancellationTokenSource source)
+    {
+        lock (PreviewProcessGate)
+            if (ReferenceEquals(_currentPreviewCancellation, source)) _currentPreviewCancellation = null;
+    }
+
     private static void EnsureSampleImagesExist(string ffmpegPath)
     {
-        Directory.CreateDirectory(SamplesDirectory);
-
-        // These are generated locally from pixels, so every project gets two
-        // original landscape images without downloading or embedding stock
-        // photography. The marker also upgrades images created by older builds.
-        if (!File.Exists(SampleVersionPath) || !File.Exists(Image1Path) || !File.Exists(Image2Path))
+        // Rapid preset changes may have two workers reaching the cache before
+        // the previous render has observed cancellation. Never overwrite an
+        // image while another generator is still encoding it.
+        lock (SampleImagesGate)
         {
-            GenerateSampleImage(ffmpegPath, Image1Path, sunset: false);
-            GenerateSampleImage(ffmpegPath, Image2Path, sunset: true);
-            try { File.WriteAllText(SampleVersionPath, "2"); } catch (IOException) { }
+            Directory.CreateDirectory(SamplesDirectory);
+            if (!File.Exists(SampleVersionPath) || !File.Exists(Image1Path) || !File.Exists(Image2Path))
+            {
+                GenerateSampleImage(ffmpegPath, Image1Path, sunset: false);
+                GenerateSampleImage(ffmpegPath, Image2Path, sunset: true);
+                try { File.WriteAllText(SampleVersionPath, "2"); } catch (IOException) { }
+            }
         }
     }
 
     private static void GenerateSampleImage(string ffmpegPath, string outputPath, bool sunset)
     {
-        if (!File.Exists(ffmpegPath)) return;
-
         string ppmPath = Path.Combine(SamplesDirectory, $"landscape_{Guid.NewGuid():N}.ppm");
         try
         {
@@ -248,39 +373,51 @@ public static class CatalogPreviewService
         finally { try { if (File.Exists(ppmPath)) File.Delete(ppmPath); } catch (IOException) { } }
     }
 
-    private static async Task RunFfmpegAsync(string ffmpegPath, string arguments, CancellationToken cancellationToken,
+    private static async Task RunFfmpegAsync(string ffmpegPath, IReadOnlyList<string> arguments, CancellationToken cancellationToken,
         Action<double>? progressCallback, double progressStart, double progressSpan, double expectedDurationSeconds)
     {
-        arguments = AddProgressReporting(arguments);
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = arguments,
                 UseShellExecute = false,
                     CreateNoWindow = true,
-                    // FFmpeg can emit more diagnostics than a redirected
-                    // pipe can hold. Leaving the streams unredirected keeps
-                    // the background preview task from deadlocking while it
-                    // waits for the encoder to finish.
+                    // Both redirected streams are drained while encoding.
                     RedirectStandardError = true,
                     RedirectStandardOutput = true
             }
         };
-        lock (PreviewProcessGate) _currentPreviewProcess = process;
+        foreach (string argument in arguments.Take(arguments.Count - 1)) process.StartInfo.ArgumentList.Add(argument);
+        foreach (string argument in new[] { "-progress", "pipe:1", "-nostats", arguments[^1] })
+            process.StartInfo.ArgumentList.Add(argument);
         try
         {
-            process.Start();
-            Task<string> errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            Task readProgressTask = ReadProgressAsync(process.StandardOutput, cancellationToken,
+            lock (PreviewProcessGate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                process.Start();
+                _currentPreviewProcess = process;
+            }
+            using var cancellationRegistration = cancellationToken.Register(() =>
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                catch (Exception exception) when (exception is InvalidOperationException or
+                    System.ComponentModel.Win32Exception or NotSupportedException) { }
+            });
+            // Drain pipes after cancellation too. The registration kills the
+            // encoder and waiting for EOF lets temporary-file cleanup succeed.
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            Task readProgressTask = ReadProgressAsync(process.StandardOutput, CancellationToken.None,
                 progressCallback, progressStart, progressSpan, expectedDurationSeconds);
-            await process.WaitForExitAsync(cancellationToken);
+            await process.WaitForExitAsync();
             await Task.WhenAll(errorTask, readProgressTask);
+            cancellationToken.ThrowIfCancellationRequested();
             if (process.ExitCode != 0)
             {
                 string error = await errorTask;
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "示例视频生成失败" : error.Trim());
+                throw new ExportException(ExportStageCode.Encode,
+                    string.IsNullOrWhiteSpace(error) ? "示例视频生成失败。" : error.Trim());
             }
             progressCallback?.Invoke(progressStart + progressSpan);
         }
@@ -289,14 +426,6 @@ public static class CatalogPreviewService
             lock (PreviewProcessGate)
                 if (ReferenceEquals(_currentPreviewProcess, process)) _currentPreviewProcess = null;
         }
-    }
-
-    private static string AddProgressReporting(string arguments)
-    {
-        const string marker = " -y \"";
-        return arguments.Contains(marker, StringComparison.Ordinal)
-            ? arguments.Replace(marker, " -progress pipe:1 -nostats -y \"", StringComparison.Ordinal)
-            : arguments + " -progress pipe:1 -nostats";
     }
 
     private static async Task ReadProgressAsync(StreamReader reader, CancellationToken cancellationToken,
@@ -311,217 +440,19 @@ public static class CatalogPreviewService
         }
     }
 
-    private static string GetEffectFilter(string effectId)
+    private static string GetEffectFilters(string effectId)
     {
-        return effectId switch
+        // Use the same effect implementation as timeline preview and export.
+        // A private preview-only table made most newer catalog effects silently
+        // fall back to brightness instead of demonstrating their own effect.
+        var clip = new TimelineClip
         {
-            "effect.brightness" => "-vf \"eq=brightness=0.2\"",
-            "effect.contrast" => "-vf \"eq=contrast=1.5\"",
-            "effect.saturation" => "-vf \"eq=saturation=1.8\"",
-            "effect.blur" => "-vf \"gblur=sigma=8\"",
-            "effect.sharpen" => "-vf \"unsharp=5:5:1.5\"",
-            "effect.sepia" => "-vf \"colorchannelmixer=.393:.769:.189:.349:.686:.168:.272:.534:.131\"",
-            "effect.black-white" => "-vf \"hue=s=0\"",
-            "effect.invert" => "-vf \"negate\"",
-            "effect.vignette" => "-vf \"vignette=PI/3\"",
-            "effect.grain" => "-vf \"noise=alls=30:allf=t\"",
-            _ => "-vf \"eq=brightness=0.1\""
+            DurationSeconds = 5,
+            Effects = [new ClipEffect { PresetId = effectId, Name = effectId }]
         };
+        string filters = VisualEffectPipeline.BuildFfmpegFilters(clip, new ProjectSequence())
+            .TrimStart(',');
+        return filters.Length == 0 ? "null" : filters;
     }
 
-    private static string GetTransitionFilter(string transitionId)
-    {
-        return transitionId switch
-        {
-            "transition.fade" or "transition.crossfade" =>
-                "[0:v][1:v]xfade=transition=fade:duration=1:offset=2[out]",
-
-            "transition.wipe-left" =>
-                "[0:v][1:v]xfade=transition=wipeleft:duration=1:offset=2[out]",
-
-            "transition.wipe-right" =>
-                "[0:v][1:v]xfade=transition=wiperight:duration=1:offset=2[out]",
-
-            "transition.wipe-up" =>
-                "[0:v][1:v]xfade=transition=wipeup:duration=1:offset=2[out]",
-
-            "transition.wipe-down" =>
-                "[0:v][1:v]xfade=transition=wipedown:duration=1:offset=2[out]",
-
-            "transition.slide-left" =>
-                "[0:v][1:v]xfade=transition=slideleft:duration=1:offset=2[out]",
-
-            "transition.slide-right" =>
-                "[0:v][1:v]xfade=transition=slideright:duration=1:offset=2[out]",
-
-            "transition.dissolve" =>
-                "[0:v][1:v]xfade=transition=dissolve:duration=1:offset=2[out]",
-            "transition.circle-open" =>
-                "[0:v][1:v]xfade=transition=circleopen:duration=1:offset=2[out]",
-            "transition.zoom" =>
-                "[0:v][1:v]xfade=transition=zoomin:duration=1:offset=2[out]",
-            "transition.rotate" =>
-                "[0:v][1:v]xfade=transition=rotateleft:duration=1:offset=2[out]",
-            "transition.shake" =>
-                "[0:v][1:v]xfade=transition=distance:duration=1:offset=2[out]",
-            "transition.blur-dissolve" =>
-                "[0:v][1:v]xfade=transition=smoothleft:duration=1:offset=2[out]",
-
-            "transition.dip-black" =>
-                "[0:v][1:v]xfade=transition=fadeblack:duration=1:offset=2[out]",
-            "transition.dip-white" =>
-                "[0:v][1:v]xfade=transition=fadewhite:duration=1:offset=2[out]",
-            "transition.push-up" =>
-                "[0:v][1:v]xfade=transition=slideup:duration=1:offset=2[out]",
-            "transition.push-down" =>
-                "[0:v][1:v]xfade=transition=slidedown:duration=1:offset=2[out]",
-            "transition.zoom-in" =>
-                "[0:v][1:v]xfade=transition=zoomin:duration=1:offset=2[out]",
-            "transition.zoom-out" =>
-                "[0:v][1:v]xfade=transition=fade:duration=1:offset=2[out]",
-            "transition.spin" =>
-                "[0:v][1:v]xfade=transition=circleopen:duration=1:offset=2[out]",
-            "transition.blur" =>
-                "[0:v][1:v]xfade=transition=smoothleft:duration=1:offset=2[out]",
-            "transition.flash" or "transition.light-leak" =>
-                "[0:v][1:v]xfade=transition=fadefast:duration=1:offset=2[out]",
-            "transition.circle" =>
-                "[0:v][1:v]xfade=transition=circleopen:duration=1:offset=2[out]",
-            "transition.diamond" =>
-                "[0:v][1:v]xfade=transition=vertopen:duration=1:offset=2[out]",
-            "transition.split" =>
-                "[0:v][1:v]xfade=transition=horzopen:duration=1:offset=2[out]",
-            "transition.page" or "transition.film" =>
-                "[0:v][1:v]xfade=transition=coverleft:duration=1:offset=2[out]",
-            "transition.glitch" =>
-                "[0:v][1:v]xfade=transition=distance:duration=1:offset=2[out]",
-
-            _ => "[0:v][1:v]xfade=transition=fade:duration=1:offset=2[out]"
-        };
-    }
-
-    /// <summary>
-    /// Builds the drawtext filter for a title preview from the preset's real
-    /// style. The style is the same one used when the preset is dropped on the
-    /// timeline, so the demonstration shows what the user will get. drawtext
-    /// cannot blur a shadow or underline text, so those are approximated.
-    /// </summary>
-    private static string GetTextFilter(string presetId, ClipText style, string textFilePath)
-    {
-        // Preview frames are 1920x1080 against a project canvas of the same
-        // nominal height, but a preset's font size targets the project canvas.
-        // Clamp so a 128 pt title and a 54 pt caption both stay in frame.
-        int fontSize = (int)Math.Clamp(Math.Round(style.FontSize * 1.1), 36, 150);
-        var options = new List<string>
-        {
-            // textfile keeps the sample out of the command line, so no quote,
-            // colon, comma or backslash in it can break the filter graph.
-            // expansion=none stops a percent sign being read as a macro.
-            $"textfile='{EscapeFilterPath(textFilePath)}'",
-            "expansion=none",
-            $"fontsize={fontSize}",
-            $"fontcolor={FfmpegColor(style.ForegroundColor, 1)}"
-        };
-        string fontFile = ResolveFontFile(style.Bold, style.Italic);
-        if (fontFile.Length > 0) options.Insert(0, $"fontfile='{fontFile}'");
-
-        if (style.OutlineEnabled && style.OutlineThickness > 0)
-        {
-            options.Add($"borderw={Math.Clamp((int)Math.Round(style.OutlineThickness * 1.5), 1, 12)}");
-            options.Add($"bordercolor={FfmpegColor(style.OutlineColor, 1)}");
-        }
-        if (style.ShadowEnabled)
-        {
-            // drawtext only has a hard offset shadow; the blur is dropped.
-            options.Add($"shadowx={Math.Clamp((int)Math.Round(style.ShadowOffsetX), -20, 20)}");
-            options.Add($"shadowy={Math.Clamp((int)Math.Round(style.ShadowOffsetY), -20, 20)}");
-            options.Add($"shadowcolor={FfmpegColor(style.ShadowColor, Math.Clamp(style.ShadowOpacity, 0, 1))}");
-        }
-        if (!string.IsNullOrWhiteSpace(style.BackgroundColor))
-        {
-            options.Add("box=1");
-            options.Add($"boxcolor={FfmpegColor(style.BackgroundColor, 1)}");
-            options.Add("boxborderw=18");
-        }
-
-        // Horizontal and vertical placement follow the style's alignment.
-        string x = style.HorizontalAlignment switch
-        {
-            "Left" => "w*0.08", "Right" => "w-text_w-w*0.08", _ => "(w-text_w)/2"
-        };
-        string y = style.VerticalAlignment switch
-        {
-            "Top" => "h*0.1", "Bottom" => "h-text_h-h*0.12", _ => "(h-text_h)/2"
-        };
-
-        // Motion is the preset's own character. Commas inside an expression
-        // are escaped because the whole filter sits in a comma-separated chain.
-        switch (presetId)
-        {
-            case "title.fade":
-                options.Add("alpha='if(lt(t\\,1)\\,t\\,if(gt(t\\,4)\\,5-t\\,1))'");
-                break;
-            case "title.slide":
-                // Slide in from below over the first second, then hold.
-                y = $"if(lt(t\\,1)\\,{y}+(1-t)*h*0.5\\,{y})";
-                break;
-            case "title.pop":
-            case "title.kinetic":
-                // Grow in by size: handled with a short alpha ramp, since
-                // drawtext cannot animate its own font size per frame.
-                options.Add("alpha='min(1\\,t*4)'");
-                break;
-        }
-        options.Add($"x={x}");
-        options.Add($"y={y}");
-        return $"-vf \"drawtext={string.Join(":", options)}\"";
-    }
-
-    /// <summary>
-    /// ffmpeg wants 0xRRGGBB@alpha. Accepts #RRGGBB and #AARRGGBB, and falls
-    /// back to white on anything unparsable rather than failing the preview.
-    /// </summary>
-    private static string FfmpegColor(string? hex, double opacity)
-    {
-        string text = (hex ?? string.Empty).Trim().TrimStart('#');
-        double alpha = Math.Clamp(opacity, 0, 1);
-        if (text.Length == 8 && int.TryParse(text[..2], System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out int a))
-        {
-            alpha *= a / 255d;
-            text = text[2..];
-        }
-        if (text.Length != 6 || !int.TryParse(text, System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out _))
-            text = "FFFFFF";
-        return $"0x{text}@{alpha.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}";
-    }
-
-    /// <summary>
-    /// Escapes a Windows path for use inside a quoted filter option: forward
-    /// slashes, and the drive colon escaped because colon separates options.
-    /// </summary>
-    private static string EscapeFilterPath(string path) =>
-        path.Replace("\\", "/").Replace(":", "\\:");
-
-    /// <summary>
-    /// The most dependable font for a demonstration: Arial ships with every
-    /// Windows install and its bold and italic faces sit next to it. An empty
-    /// result tells the caller to omit fontfile and let ffmpeg use its default.
-    /// The sample word is Latin, so a CJK-capable face is not needed here.
-    /// </summary>
-    private static string ResolveFontFile(bool bold, bool italic)
-    {
-        string fonts = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
-        string face = (bold, italic) switch
-        {
-            (true, true) => "arialbi.ttf",
-            (true, false) => "arialbd.ttf",
-            (false, true) => "ariali.ttf",
-            _ => "arial.ttf"
-        };
-        string path = Path.Combine(fonts, face);
-        if (!File.Exists(path)) path = Path.Combine(fonts, "arial.ttf");
-        return File.Exists(path) ? EscapeFilterPath(path) : string.Empty;
-    }
 }

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -14,6 +14,7 @@ namespace TANGERINE_VideoEditor;
 /// </summary>
 public partial class MainWindow
 {
+    private static readonly object FontPopulationMarker = new();
     /// <summary>
     /// Opens text controls in the left settings area. Changes are applied
     /// immediately so a preview double-click never opens a blocking dialog.
@@ -34,7 +35,7 @@ public partial class MainWindow
         panel.Children.Add(new TextBlock { Text = "双击预览区文字即可编辑；设置会即时生效。", Foreground = Brush("#C5CAD4"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) });
         ClipText style = clip.Text ??= new ClipText { Content = clip.Name };
         bool updating = true;
-        var content = new TextBox { Text = style.Content, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 72, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 3, 0, 8) };
+        var content = new TextBox { Text = style.Content, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = SystemParameters.PrimaryScreenHeight * .06, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 3, 0, 8) };
         panel.Children.Add(new TextBlock { Text = "文字内容", Foreground = Brush("#D9DCE3") }); panel.Children.Add(content);
         var font = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, Text = style.FontFamily, ItemsSource = new[] { "Microsoft YaHei UI", "Arial", "Calibri", "Consolas", "Times New Roman" }, Margin = new Thickness(0, 3, 0, 8), Background = Brush("#282B32"), Foreground = Brushes.White, BorderBrush = Brush("#565B65") };
         panel.Children.Add(new TextBlock { Text = "字体", Foreground = Brush("#D9DCE3") }); panel.Children.Add(font); _ = PopulateFontsAsync(font);
@@ -47,12 +48,21 @@ public partial class MainWindow
         toggles.Children.Add(bold); toggles.Children.Add(italic); toggles.Children.Add(underline); panel.Children.Add(toggles);
         var foreground = AddTextToolField(panel, "文字颜色", style.ForegroundColor);
         var background = AddTextToolField(panel, "文字背景颜色（留空透明）", style.BackgroundColor ?? string.Empty);
+        var paddingX = AddTextToolField(panel, "背景左右内边距（像素）", style.BackgroundPaddingX.ToString(CultureInfo.CurrentCulture));
+        var paddingY = AddTextToolField(panel, "背景上下内边距（像素）", style.BackgroundPaddingY.ToString(CultureInfo.CurrentCulture));
+        var cornerRadius = AddTextToolField(panel, "背景圆角（像素）", style.BackgroundCornerRadius.ToString(CultureInfo.CurrentCulture));
+        var backgroundOpacity = AddTextToolField(panel, "背景不透明度（0-1）", style.BackgroundOpacity.ToString(CultureInfo.CurrentCulture));
+        var horizontalInset = AddTextToolField(panel, "水平安全边距（画面宽度的 %）", (style.HorizontalInset * 100).ToString(CultureInfo.CurrentCulture));
+        var verticalInset = AddTextToolField(panel, "垂直安全边距（画面高度的 %）", (style.VerticalInset * 100).ToString(CultureInfo.CurrentCulture));
         var outlineEnabled = new CheckBox { Content = "启用描边", IsChecked = style.OutlineEnabled, Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 6) }; panel.Children.Add(outlineEnabled);
         var outlineColor = AddTextToolField(panel, "描边颜色", style.OutlineColor); var outlineThickness = AddTextToolField(panel, "描边粗细", style.OutlineThickness.ToString(CultureInfo.CurrentCulture));
         var shadowEnabled = new CheckBox { Content = "启用阴影", IsChecked = style.ShadowEnabled, Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 6) }; panel.Children.Add(shadowEnabled);
         var shadowColor = AddTextToolField(panel, "阴影颜色", style.ShadowColor); var shadowBlur = AddTextToolField(panel, "阴影模糊", style.ShadowBlur.ToString(CultureInfo.CurrentCulture)); var shadowOpacity = AddTextToolField(panel, "阴影透明度（0-1）", style.ShadowOpacity.ToString(CultureInfo.CurrentCulture));
         var shadowX = AddTextToolField(panel, "阴影 X 偏移", style.ShadowOffsetX.ToString(CultureInfo.CurrentCulture));
         var shadowY = AddTextToolField(panel, "阴影 Y 偏移", style.ShadowOffsetY.ToString(CultureInfo.CurrentCulture));
+        var glowColor = AddTextToolField(panel, "光晕颜色", style.GlowColor);
+        var glowRadius = AddTextToolField(panel, "光效范围（像素）", style.GlowRadius.ToString(CultureInfo.CurrentCulture));
+        var glowOpacity = AddTextToolField(panel, "光晕透明度（0-1）", style.GlowOpacity.ToString(CultureInfo.CurrentCulture));
         var letterSpacing = AddTextToolField(panel, "字距（-100 至 300）", style.LetterSpacing.ToString(CultureInfo.CurrentCulture));
         var lineHeight = AddTextToolField(panel, "行高倍数（0.5 至 5）", style.LineHeight.ToString(CultureInfo.CurrentCulture));
         var horizontal = new ComboBox { ItemsSource = new[] { "左对齐", "居中", "右对齐" }, SelectedItem = style.HorizontalAlignment switch { "Left" => "左对齐", "Right" => "右对齐", _ => "居中" }, Margin = new Thickness(0, 3, 0, 8), Background = Brush("#282B32"), Foreground = Brushes.White, BorderBrush = Brush("#565B65") };
@@ -72,9 +82,17 @@ public partial class MainWindow
                 !double.TryParse(shadowOpacity.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double opacity) || !double.IsFinite(opacity) || opacity is < 0 or > 1 ||
                 !double.TryParse(shadowX.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double offsetX) || !double.IsFinite(offsetX) || offsetX is < -200 or > 200 ||
                 !double.TryParse(shadowY.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double offsetY) || !double.IsFinite(offsetY) || offsetY is < -200 or > 200 ||
+                !double.TryParse(glowRadius.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double glowRange) || !double.IsFinite(glowRange) || glowRange is < 0 or > 200 ||
+                !double.TryParse(glowOpacity.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double glowAlpha) || !double.IsFinite(glowAlpha) || glowAlpha is < 0 or > 1 ||
                 !double.TryParse(letterSpacing.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double spacing) || !double.IsFinite(spacing) || spacing is < -100 or > 300 ||
                 !double.TryParse(lineHeight.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double lineHeightValue) || !double.IsFinite(lineHeightValue) || lineHeightValue is < .5 or > 5 ||
-                !TryColorValue(foreground.Text) || !TryColorValue(background.Text, true) || !TryColorValue(outlineColor.Text) || !TryColorValue(shadowColor.Text)) return;
+                !double.TryParse(paddingX.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double paddingXValue) || !double.IsFinite(paddingXValue) || paddingXValue is < 0 or > 500 ||
+                !double.TryParse(paddingY.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double paddingYValue) || !double.IsFinite(paddingYValue) || paddingYValue is < 0 or > 500 ||
+                !double.TryParse(cornerRadius.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double radiusValue) || !double.IsFinite(radiusValue) || radiusValue is < 0 or > 500 ||
+                !double.TryParse(backgroundOpacity.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double backgroundOpacityValue) || !double.IsFinite(backgroundOpacityValue) || backgroundOpacityValue is < 0 or > 1 ||
+                !double.TryParse(horizontalInset.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double insetXValue) || !double.IsFinite(insetXValue) || insetXValue is < 0 or > 50 ||
+                !double.TryParse(verticalInset.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double insetYValue) || !double.IsFinite(insetYValue) || insetYValue is < 0 or > 50 ||
+                !TryColorValue(foreground.Text) || !TryColorValue(background.Text, true) || !TryColorValue(outlineColor.Text) || !TryColorValue(shadowColor.Text) || !TryColorValue(glowColor.Text)) return;
             applying = true;
             try
             {
@@ -82,11 +100,29 @@ public partial class MainWindow
                 // not rebuild the settings tab on every keystroke: that would
                 // steal focus and make multiline text impossible to enter.
                 if (!undoCaptured) { SaveUndoState(); undoCaptured = true; }
-                style.Content = content.Text; style.FontFamily = string.IsNullOrWhiteSpace(font.Text) ? style.FontFamily : font.Text.Trim(); style.FontSize = fontSize; style.Bold = bold.IsChecked == true; style.Italic = italic.IsChecked == true; style.Underline = underline.IsChecked == true; style.ForegroundColor = foreground.Text; style.BackgroundColor = string.IsNullOrWhiteSpace(background.Text) ? null : background.Text; style.OutlineEnabled = outlineEnabled.IsChecked == true; style.OutlineColor = outlineColor.Text; style.OutlineThickness = border; style.ShadowEnabled = shadowEnabled.IsChecked == true; style.ShadowColor = shadowColor.Text; style.ShadowBlur = blur; style.ShadowOpacity = opacity; style.ShadowOffsetX = offsetX; style.ShadowOffsetY = offsetY; style.LetterSpacing = spacing; style.LineHeight = lineHeightValue; style.HorizontalAlignment = (horizontal.SelectedItem as string) switch { "左对齐" => "Left", "右对齐" => "Right", _ => "Center" }; style.VerticalAlignment = (vertical.SelectedItem as string) switch { "顶部" => "Top", "底部" => "Bottom", _ => "Center" }; clip.Name = style.Content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "文字"; MarkProjectDirty(); DrawTimeline(); DrawTextOverlay(); SeekPreview(_project.Sequence.PlayheadSeconds); LibraryTitle.Text = $"{clip.Name}设置"; motion?.Refresh();
+                style.BackgroundPaddingX = paddingXValue; style.BackgroundPaddingY = paddingYValue;
+                style.BackgroundCornerRadius = radiusValue; style.BackgroundOpacity = backgroundOpacityValue;
+                style.HorizontalInset = insetXValue / 100; style.VerticalInset = insetYValue / 100;
+                style.Content = content.Text; style.FontFamily = string.IsNullOrWhiteSpace(font.Text) ? style.FontFamily : font.Text.Trim(); style.FontSize = fontSize; style.Bold = bold.IsChecked == true; style.Italic = italic.IsChecked == true; style.Underline = underline.IsChecked == true; style.ForegroundColor = foreground.Text; style.BackgroundColor = string.IsNullOrWhiteSpace(background.Text) ? null : background.Text; style.OutlineEnabled = outlineEnabled.IsChecked == true; style.OutlineColor = outlineColor.Text; style.OutlineThickness = border; style.ShadowEnabled = shadowEnabled.IsChecked == true; style.ShadowColor = shadowColor.Text; style.ShadowBlur = blur; style.ShadowOpacity = opacity; style.ShadowOffsetX = offsetX; style.ShadowOffsetY = offsetY; style.GlowColor = glowColor.Text; style.GlowRadius = glowRange; style.GlowOpacity = glowAlpha; style.LetterSpacing = spacing; style.LineHeight = lineHeightValue; style.HorizontalAlignment = (horizontal.SelectedItem as string) switch { "左对齐" => "Left", "右对齐" => "Right", _ => "Center" }; style.VerticalAlignment = (vertical.SelectedItem as string) switch { "顶部" => "Top", "底部" => "Bottom", _ => "Center" }; clip.Name = style.Content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "文字"; MarkProjectDirty(); DrawTimeline(); DrawTextOverlay(); SeekPreview(_project.Sequence.PlayheadSeconds); LibraryTitle.Text = $"{clip.Name}设置"; motion?.Refresh();
             }
             finally { applying = false; }
         }
-        content.TextChanged += (_, _) => Apply(); font.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler((_, _) => Apply())); size.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler((_, _) => Apply())); bold.Click += (_, _) => Apply(); italic.Click += (_, _) => Apply(); underline.Click += (_, _) => Apply(); foreground.TextChanged += (_, _) => Apply(); background.TextChanged += (_, _) => Apply(); outlineEnabled.Click += (_, _) => Apply(); outlineColor.TextChanged += (_, _) => Apply(); outlineThickness.TextChanged += (_, _) => Apply(); shadowEnabled.Click += (_, _) => Apply(); shadowColor.TextChanged += (_, _) => Apply(); shadowBlur.TextChanged += (_, _) => Apply(); shadowOpacity.TextChanged += (_, _) => Apply(); shadowX.TextChanged += (_, _) => Apply(); shadowY.TextChanged += (_, _) => Apply(); letterSpacing.TextChanged += (_, _) => Apply(); lineHeight.TextChanged += (_, _) => Apply(); horizontal.SelectionChanged += (_, _) => Apply(); vertical.SelectionChanged += (_, _) => Apply(); updating = false;
+        content.TextChanged += (_, _) => Apply();
+        // Editable ComboBox templates and asynchronous font enumeration also
+        // raise TextChanged. Only an actual user edit may create history or
+        // change the document revision when the inspector is reconstructed.
+        font.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler((_, _) =>
+        {
+            if (!ReferenceEquals(font.Tag, FontPopulationMarker) && (font.IsKeyboardFocusWithin || font.IsDropDownOpen)) Apply();
+        }));
+        size.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler((_, _) =>
+        {
+            if (size.IsKeyboardFocusWithin || size.IsDropDownOpen) Apply();
+        }));
+        bold.Click += (_, _) => Apply(); italic.Click += (_, _) => Apply(); underline.Click += (_, _) => Apply(); foreground.TextChanged += (_, _) => Apply(); background.TextChanged += (_, _) => Apply(); outlineEnabled.Click += (_, _) => Apply(); outlineColor.TextChanged += (_, _) => Apply(); outlineThickness.TextChanged += (_, _) => Apply(); shadowEnabled.Click += (_, _) => Apply(); shadowColor.TextChanged += (_, _) => Apply(); shadowBlur.TextChanged += (_, _) => Apply(); shadowOpacity.TextChanged += (_, _) => Apply(); shadowX.TextChanged += (_, _) => Apply(); shadowY.TextChanged += (_, _) => Apply(); glowColor.TextChanged += (_, _) => Apply(); glowRadius.TextChanged += (_, _) => Apply(); glowOpacity.TextChanged += (_, _) => Apply(); letterSpacing.TextChanged += (_, _) => Apply(); lineHeight.TextChanged += (_, _) => Apply(); horizontal.SelectionChanged += (_, _) => Apply(); vertical.SelectionChanged += (_, _) => Apply(); updating = false;
+        paddingX.TextChanged += (_, _) => Apply(); paddingY.TextChanged += (_, _) => Apply();
+        cornerRadius.TextChanged += (_, _) => Apply(); backgroundOpacity.TextChanged += (_, _) => Apply();
+        horizontalInset.TextChanged += (_, _) => Apply(); verticalInset.TextChanged += (_, _) => Apply();
         if (motion is not null) panel.Children.Add(motion.Element);
         return panel;
     }
@@ -297,6 +333,10 @@ public partial class MainWindow
                 Underline = underline.IsChecked == true,
                 ForegroundColor = foreground.Text,
                 BackgroundColor = string.IsNullOrWhiteSpace(background.Text) ? null : background.Text,
+                BackgroundPaddingX = current.BackgroundPaddingX, BackgroundPaddingY = current.BackgroundPaddingY,
+                BackgroundCornerRadius = current.BackgroundCornerRadius, BackgroundOpacity = current.BackgroundOpacity,
+                HorizontalInset = current.HorizontalInset, VerticalInset = current.VerticalInset,
+                GlowColor = current.GlowColor, GlowRadius = current.GlowRadius, GlowOpacity = current.GlowOpacity,
                 HorizontalAlignment = (horizontal.SelectedItem as string) switch
                 { "左对齐" => "Left", "右对齐" => "Right", _ => "Center" },
                 VerticalAlignment = (vertical.SelectedItem as string) switch
@@ -409,8 +449,10 @@ public partial class MainWindow
             string[] families = await completion.Task;
             // Preserve edits entered while font discovery was running.
             string selected = combo.Text;
-            combo.ItemsSource = families;
-            combo.Text = selected;
+            object? previousTag = combo.Tag;
+            combo.Tag = FontPopulationMarker;
+            try { combo.ItemsSource = families; combo.Text = selected; }
+            finally { combo.Tag = previousTag; }
         }
         catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException)
         {

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -58,7 +58,8 @@ public static class TimelineExporter
 
     public static async Task ExportMp4Async(ProjectDocument project, string outputPath,
         IReadOnlyDictionary<string, string> titleImagePaths, IProgress<double>? progress = null,
-        CancellationToken cancellationToken = default, VideoExportSettings? settings = null)
+        CancellationToken cancellationToken = default, VideoExportSettings? settings = null,
+        PreviewEncodingProfile? previewEncoding = null, string? encoderPath = null)
     {
         settings ??= new VideoExportSettings();
         if (project.Sequence.Width <= 0 || project.Sequence.Height <= 0 ||
@@ -100,7 +101,7 @@ public static class TimelineExporter
         string? directory = Path.GetDirectoryName(fullOutput);
         if (directory is null || !Directory.Exists(directory))
             throw new ExportException(ExportStageCode.Validate, "导出目录不存在。");
-        string encoder = ResolveEncoderPath();
+        string encoder = encoderPath ?? ResolveEncoderPath();
         string temporaryOutput = Path.Combine(directory, $".{Path.GetFileNameWithoutExtension(fullOutput)}.{Guid.NewGuid():N}.mp4");
         string scriptPath = Path.Combine(Path.GetTempPath(), $"tangerine-{Guid.NewGuid():N}.ffgraph");
         try
@@ -109,6 +110,9 @@ public static class TimelineExporter
             var arguments = new List<string>
             {
                 "-hide_banner", "-y", "-nostdin", "-loglevel", "error",
+                // Bound per-filter queues on timelines with many image inputs;
+                // decoding and video encoding remain independently threaded.
+                "-filter_complex_threads", "4",
                 "-progress", "pipe:1"
             };
             int width = project.Sequence.Width;
@@ -149,6 +153,9 @@ public static class TimelineExporter
                             arguments.AddRange(["-safe", "0", "-f", "concat"]);
                         else if (clip.Kind is ClipKind.Text or ClipKind.Image)
                             arguments.AddRange(["-loop", "1", "-framerate", fpsText]);
+                        // Default decoder thread counts multiply by every
+                        // simultaneously open input on large multiclip edits.
+                        arguments.AddRange(["-threads", "2"]);
                         arguments.AddRange(["-i", inputPath]);
                     }
                     else
@@ -309,7 +316,6 @@ public static class TimelineExporter
                     filter += $",scale=w='max(1,iw*{titleScale})':h='max(1,ih*{titleScale})':eval=frame";
                 bool animatedRotation = ClipAnimation.HasKeyframes(clip, "RotationDegrees");
                 string rotationAngle = $"({ClipAnimation.FfmpegExpression(clip, "RotationDegrees", "t")})*PI/180";
-                bool transitionRotation = false;
                 double opacity = clip.Opacity;
                 if (ClipAnimation.HasKeyframes(clip, "Opacity"))
                 {
@@ -322,12 +328,6 @@ public static class TimelineExporter
                 bool incomingCrossfade = BoundaryCrossfade.TryGetPrior(item.Track, clip,
                     project.Sequence.FramesPerSecond, out TimelineClip? previousClip,
                     out double crossfadeDuration);
-                bool dissolveBoundary = incomingCrossfade &&
-                    BoundaryCrossfade.TryGetTransition(item.Track, clip,
-                        project.Sequence.FramesPerSecond, out _, out ClipTransition? boundaryTransition,
-                        out _) && boundaryTransition?.PresetId == "transition.crossfade";
-                if (dissolveBoundary)
-                    filter += $",fade=t=in:st=0:d={Number(crossfadeDuration)}:alpha=1";
                 // Text titles are already laid out and positioned in a full-frame transparent PNG.
                 string localOverlayTime = $"(t-{Number(clip.StartSeconds)})";
                 string overlayX = $"(W-w)/2+({ClipAnimation.FfmpegExpression(clip, "PositionX", localOverlayTime)})";
@@ -368,111 +368,23 @@ public static class TimelineExporter
                     height, localOverlayTime);
                 if (titleOffsetY.Length > 0)
                     overlayY += $"+({titleOffsetY})";
-                foreach (ClipTransition transition in clip.Transitions)
+                string creditsOffset = DynamicTitlePreset.FfmpegCreditsOffset(clip, height, localOverlayTime);
+                if (creditsOffset.Length > 0)
+                    overlayY += $"+({creditsOffset})";
+                int transitionIndex = 0;
+                foreach (ClipTransition transition in TransitionRenderPlan.ForClip(item.Track, clip,
+                    project.Sequence.FramesPerSecond))
                 {
                     if (transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase) &&
                         outgoingDurations.ContainsKey(clip.Id)) continue;
-                    if (transition.PresetId is "transition.crossfade" or "transition.dissolve" &&
-                        transition.Edge.Equals("In", StringComparison.OrdinalIgnoreCase) &&
-                        dissolveBoundary) continue;
-                    double transitionDuration = Math.Min(clip.DurationSeconds / 2, Math.Max(0, transition.DurationSeconds));
-                    if (transitionDuration < .001) continue;
-                    bool outgoing = transition.Edge.Equals("Out", StringComparison.OrdinalIgnoreCase);
-                    double startTime = outgoing ? clip.DurationSeconds - transitionDuration : 0;
-                    string transitionProgress = outgoing
-                        ? $"({Number(clip.DurationSeconds)}-N/{fpsText})/{Number(transitionDuration)}"
-                        : $"(N/{fpsText})/{Number(transitionDuration)}";
-                    double strength = TransitionSettings.Strength(transition);
-                    string expression = transition.PresetId switch
-                    {
-                        "transition.wipe-left" => $"lte(X/W,clip({transitionProgress},0,1))",
-                        "transition.wipe-right" => $"gte(X/W,1-clip({transitionProgress},0,1))",
-                        "transition.wipe-up" => $"lte(Y/H,clip({transitionProgress},0,1))",
-                        "transition.wipe-down" => $"gte(Y/H,1-clip({transitionProgress},0,1))",
-                        "transition.circle" or "transition.circle-open" => $"lte(hypot(X-W/2,Y-H/2)/hypot(W/2,H/2),clip({transitionProgress},0,1))",
-                        "transition.diamond" => $"lte((abs(X-W/2)/(W/2)+abs(Y-H/2)/(H/2))/2,clip({transitionProgress},0,1))",
-                        "transition.split" => $"lte(abs(X-W/2)/(W/2),clip({transitionProgress},0,1))",
-                        "transition.page" => $"lte(X/W+{Number(.18 * strength)}*sin(PI*Y/H),clip({transitionProgress},0,1)*{Number(1 + .18 * strength)})",
-                        "transition.glitch" => $"lte(X/W,clip(({transitionProgress})+{Number(.12 * strength)}*sin(31*Y/H+18*N/{fpsText}),0,1))",
-                        "transition.film" or "transition.shake" => $"lte(Y/H,clip(({transitionProgress})+{Number(.08 * strength)}*sin(10*X/W+N/{fpsText}*16),0,1))",
-                        _ => string.Empty
-                    };
-                    if (expression.Length > 0)
-                    {
-                        filter += $",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*{VisualEffectPipeline.EscapeExpression(expression)}'";
-                    }
-                    else if (transition.PresetId is "transition.slide-left" or "transition.slide-right" or
-                        "transition.push-up" or "transition.push-down")
-                    {
-                        string position = $"min(max((t-{Number(clip.StartSeconds + startTime)})/{Number(transitionDuration)},0),1)";
-                        if (outgoing) position = $"(1-{position})";
-                        switch (transition.PresetId)
-                        {
-                            case "transition.slide-left": overlayX = $"{overlayX}+(1-{position})*W"; break;
-                            case "transition.slide-right": overlayX = $"{overlayX}-(1-{position})*W"; break;
-                            case "transition.push-up": overlayY = $"{overlayY}+(1-{position})*H"; break;
-                            case "transition.push-down": overlayY = $"{overlayY}-(1-{position})*H"; break;
-                        }
-                    }
-                    else if (transition.PresetId is "transition.zoom-in" or "transition.zoom-out" or "transition.zoom")
-                    {
-                        // Scale evaluates at each clip-local frame. The alpha
-                        // fade exposes the neighboring clip while the picture
-                        // grows or shrinks around its existing center.
-                        string zoomProgress = outgoing
-                            ? $"min(max(({Number(clip.DurationSeconds)}-t)/{Number(transitionDuration)},0),1)"
-                            : $"min(max(t/{Number(transitionDuration)},0),1)";
-                        double zoomRange = .5 * strength;
-                        string zoom = transition.PresetId is "transition.zoom-in" or "transition.zoom"
-                            ? $"({Number(1 - zoomRange)}+{Number(zoomRange)}*{zoomProgress})"
-                            : $"({Number(1 + zoomRange)}-{Number(zoomRange)}*{zoomProgress})";
-                        filter += $",scale=w='max(1,iw*{zoom})':h='max(1,ih*{zoom})':eval=frame";
-                        filter += $",fade=t={(outgoing ? "out" : "in")}:st={Number(startTime)}:d={Number(transitionDuration)}:alpha=1";
-                    }
-                    else if (transition.PresetId is "transition.spin" or "transition.rotate")
-                    {
-                        string transitionPosition = outgoing
-                            ? $"min(max(({Number(clip.DurationSeconds)}-t)/{Number(transitionDuration)},0),1)"
-                            : $"min(max(t/{Number(transitionDuration)},0),1)";
-                        rotationAngle += $"+(1-{transitionPosition})*{Number(2 * TransitionSettings.Turns(transition))}*PI";
-                        transitionRotation = true;
-                        filter += $",fade=t={(outgoing ? "out" : "in")}:st={Number(startTime)}:d={Number(transitionDuration)}:alpha=1";
-                    }
-                    else if (transition.PresetId is "transition.blur" or "transition.blur-dissolve")
-                    {
-                        // gblur sigma is a numeric filter option rather than
-                        // a per-frame expression. Its enabled interval gives
-                        // this transition a visibly softened boundary.
-                        string blurWindow = $"between(t,{Number(startTime)},{Number(startTime + transitionDuration)})";
-                        if (strength >= .01)
-                            filter += $",gblur=sigma={Number(9 * strength)}:enable='{VisualEffectPipeline.EscapeExpression(blurWindow)}'";
-                        filter += $",fade=t={(outgoing ? "out" : "in")}:st={Number(startTime)}:d={Number(transitionDuration)}:alpha=1";
-                    }
-                    else if (transition.PresetId is "transition.flash" or "transition.light-leak" or
-                        "transition.dip-black" or "transition.dip-white")
-                    {
-                        string transitionPosition = outgoing
-                            ? $"min(max(({Number(clip.DurationSeconds)}-t)/{Number(transitionDuration)},0),1)"
-                            : $"min(max(t/{Number(transitionDuration)},0),1)";
-                        double amount = transition.PresetId switch
-                        {
-                            "transition.flash" => Math.Min(1, .85 * strength),
-                            "transition.light-leak" => Math.Min(1, .55 * strength),
-                            "transition.dip-white" => 1, _ => -1
-                        };
-                        filter += $",eq=brightness='(1-{transitionPosition})*{Number(amount)}':eval=frame";
-                        filter += $",fade=t={(outgoing ? "out" : "in")}:st={Number(startTime)}:d={Number(transitionDuration)}:alpha=1";
-                    }
-                    else
-                    {
-                        filter += $",fade=t={(outgoing ? "out" : "in")}:st={Number(startTime)}:d={Number(transitionDuration)}:alpha=1";
-                    }
+                    filter += TransitionRenderPlan.BuildFilters(transition, clip.DurationSeconds,
+                        "T", $"exporttr{videoCount}x{transitionIndex++}", width);
                 }
-                if (animatedRotation || transitionRotation || Math.Abs(transform.RotationDegrees) > .001)
+                if (animatedRotation || Math.Abs(transform.RotationDegrees) > .001)
                 {
                     // Rotate after transition modulation. A fixed diagonal
                     // output canvas keeps animated angles compositable.
-                    filter += animatedRotation || transitionRotation
+                    filter += animatedRotation
                         ? $",rotate=a='{rotationAngle}':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=none"
                         : $",rotate=a='{rotationAngle}':ow=rotw({rotationAngle}):oh=roth({rotationAngle}):c=none";
                 }
@@ -488,12 +400,21 @@ public static class TimelineExporter
                     string hold = $"vholdframe{videoCount}";
                     double frameSeconds = 1 / project.Sequence.FramesPerSecond;
                     double lastFrame = Math.Max(0, clip.StartSeconds + clip.DurationSeconds - frameSeconds);
-                    // The transparent, fully processed outgoing picture is
-                    // cloned into the incoming interval. Its placement uses
-                    // the same overlay coordinates as the ordinary clip.
-                    graph.AppendLine($"[{held}]trim=start={Number(lastFrame)}:duration={Number(frameSeconds)}," +
+                    // Timestamp shifts are rounded to the stream time base.
+                    // A one-frame wall-clock trim can therefore contain zero
+                    // frames (fractional starts plus a framesync transition
+                    // exposed this). FFmpeg 4.4 tpad then clones a null frame
+                    // and crashes in av_frame_ref. Keep a bounded tail, reverse
+                    // only that tail and take its actual last decoded frame.
+                    // Never reverse the entire clip: long sources would buffer
+                    // unbounded video in memory just to hold their last frame.
+                    string heldMotion = TransitionRenderPlan.HeldBoundary(item.Track, clip,
+                        project.Sequence.FramesPerSecond) is { } heldBoundary
+                        ? TransitionRenderPlan.BuildHeldFilters(heldBoundary.Transition, heldBoundary.ClipDuration, "T")
+                        : string.Empty;
+                    graph.AppendLine($"[{held}]trim=start={Number(Math.Max(0, lastFrame - 2 * frameSeconds))},reverse,trim=end_frame=1," +
                         $"setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={Number(holdDuration)}," +
-                        $"trim=duration={Number(holdDuration)},setpts=PTS+{Number(clip.StartSeconds + clip.DurationSeconds)}/TB[{hold}];");
+                        $"trim=duration={Number(holdDuration)}{heldMotion},setpts=PTS+{Number(clip.StartSeconds + clip.DurationSeconds)}/TB[{hold}];");
                     double holdTime = clip.StartSeconds + clip.DurationSeconds - frameSeconds;
                     string priorX = $"(W-w)/2+{Number(ClipAnimation.Evaluate(clip, "PositionX", holdTime))}";
                     string priorY = $"(H-h)/2+{Number(ClipAnimation.Evaluate(clip, "PositionY", holdTime))}";
@@ -582,26 +503,64 @@ public static class TimelineExporter
                 ? string.Empty : $",scale={outputWidth}:{outputHeight}:force_original_aspect_ratio=increase:flags=lanczos," +
                     $"crop={outputWidth}:{outputHeight}";
             string outputColorPrefix = outputColor.Length > 0 ? outputColor + "," : string.Empty;
+            // A sub-frame selection can fall between every source timestamp.
+            // Sample its containing sequence frame rather than feeding an
+            // empty stream into clone padding (FFmpeg 4.4 cannot clone null).
+            bool subFrameRange = exportDuration < 1 / project.Sequence.FramesPerSecond - .000001;
+            double videoRangeStart = subFrameRange
+                ? Math.Floor(rangeStart * project.Sequence.FramesPerSecond) / project.Sequence.FramesPerSecond : rangeStart;
+            double videoRangeEnd = subFrameRange ? videoRangeStart + 1 / project.Sequence.FramesPerSecond : rangeEnd;
             // The last graph stage trims the fully composited clock, then
             // re-bases audio and video timestamps to zero for the MP4 muxer.
             graph.AppendLine($"[{videoLabel}]{outputColorPrefix}" +
-                $"trim=start={Number(rangeStart)}:end={Number(rangeEnd)},setpts=PTS-STARTPTS" +
-                $"{outputScale},fps={outputFpsText},format=yuv420p[videoout];");
+                (subFrameRange ? $"tpad=stop_mode=clone:stop_duration={Number(1 / project.Sequence.FramesPerSecond)}," : string.Empty) +
+                $"trim=start={Number(videoRangeStart)}:end={Number(videoRangeEnd)},setpts=PTS-STARTPTS" +
+                // Framesync can signal EOF at the last frame's PTS. Extend the
+                // last real frame before fps sampling, then bound the result by
+                // frame count so neither EOF rounding nor padding changes length.
+                $"{outputScale},tpad=stop_mode=clone:stop_duration={Number(1 / outputFps)}," +
+                $"fps={outputFpsText}:eof_action=pass,trim=end_frame={Math.Max(1, (long)Math.Ceiling(exportDuration * outputFps - .000001))},format=yuv420p[videoout];");
             graph.AppendLine($"[audioout]atrim=start={Number(rangeStart)}:end={Number(rangeEnd)},asetpts=PTS-STARTPTS[audiorange]");
             await File.WriteAllTextAsync(scriptPath, graph.ToString(), new UTF8Encoding(false), cancellationToken)
                 .ConfigureAwait(false);
 
             arguments.AddRange(["-filter_complex_script", scriptPath, "-map", "[videoout]", "-map", "[audiorange]",
-                "-t", Number(exportDuration), "-r", outputFpsText, "-c:v", "libx264", "-preset", "medium",
+                "-t", Number(exportDuration), "-r", outputFpsText,
                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
-            if (settings.VideoBitrateKbps is int bitrate)
-                arguments.AddRange(["-b:v", $"{bitrate}k", "-maxrate", $"{bitrate * 13 / 10}k",
-                    "-bufsize", $"{bitrate * 2}k"]);
-            else arguments.AddRange(["-crf", "20"]);
-            arguments.Add(temporaryOutput);
-
-            await RunEncoderAsync(encoder, arguments, exportDuration, progress, cancellationToken)
-                .ConfigureAwait(false);
+            if (previewEncoding is null)
+            {
+                arguments.AddRange(["-c:v", "libx264", "-preset", "medium", "-threads", "4"]);
+                if (settings.VideoBitrateKbps is int bitrate)
+                    arguments.AddRange(["-b:v", $"{bitrate}k", "-maxrate", $"{bitrate * 13 / 10}k",
+                        "-bufsize", $"{bitrate * 2}k"]);
+                else arguments.AddRange(["-crf", "20"]);
+                arguments.Add(temporaryOutput);
+                await RunEncoderAsync(encoder, arguments, exportDuration, progress, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                // Only library demos opt into the low-latency profile. Keep
+                // the filter graph identical when falling back: a hardware
+                // session rejection must never change the effect itself.
+                List<string> previewArguments = [.. arguments, .. previewEncoding.VideoArguments, temporaryOutput];
+                try
+                {
+                    await RunEncoderAsync(encoder, previewArguments, exportDuration, progress, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (ExportException exception) when (exception.StageCode == ExportStageCode.Encode &&
+                    previewEncoding.IsHardwareAccelerated && !cancellationToken.IsCancellationRequested)
+                {
+                    Debug.WriteLine($"PREVIEW-GPU-FALLBACK {previewEncoding.EncoderName}: {exception.Message}");
+                    previewArguments = [.. arguments, .. PreviewEncodingProfile.Software.VideoArguments, temporaryOutput];
+                    await RunEncoderAsync(encoder, previewArguments, exportDuration, progress, cancellationToken)
+                        .ConfigureAwait(false);
+                    // A malformed graph also fails on software and should
+                    // not poison the cached hardware capability result.
+                    previewEncoding.MarkUnavailable();
+                }
+            }
             try { File.Move(temporaryOutput, fullOutput, overwrite: true); }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             { throw new ExportException(ExportStageCode.Finalize, "视频已渲染，但无法写入目标文件。", exception); }
@@ -710,7 +669,41 @@ public static class TimelineExporter
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         await errorReader.ConfigureAwait(false);
         if (process.ExitCode != 0)
-            throw new ExportException(ExportStageCode.Encode, $"视频编码失败。\n{errors.ToString().Trim()}");
+        {
+            string code = $"0x{unchecked((uint)process.ExitCode):X8}";
+            string? diagnostic = await SaveEncoderFailureAsync(encoder, arguments, process.ExitCode, errors.ToString()).ConfigureAwait(false);
+            string detail = errors.ToString().Trim();
+            if (detail.Length == 0) detail = process.ExitCode == unchecked((int)0xC0000005)
+                ? "FFmpeg 发生原生内存访问冲突。" : "编码器异常退出，未输出错误文本。";
+            throw new ExportException(ExportStageCode.Encode,
+                $"视频编码失败（退出码 {process.ExitCode} / {code}）。\n{detail}" +
+                (diagnostic is null ? "" : $"\n诊断记录：{diagnostic}"));
+        }
+    }
+
+    private static async Task<string?> SaveEncoderFailureAsync(string encoder, IReadOnlyList<string> arguments,
+        int exitCode, string errors)
+    {
+        try
+        {
+            string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "TANGERINE-VideoEditor", "diagnostics", "export");
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.txt");
+            int graphIndex = arguments.ToList().IndexOf("-filter_complex_script");
+            string graph = graphIndex >= 0 && graphIndex + 1 < arguments.Count && File.Exists(arguments[graphIndex + 1])
+                ? await File.ReadAllTextAsync(arguments[graphIndex + 1]).ConfigureAwait(false) : "";
+            await File.WriteAllTextAsync(path, $"Encoder: {encoder}\nExit code: {exitCode} / 0x{unchecked((uint)exitCode):X8}\n" +
+                "Arguments (JSON): " + System.Text.Json.JsonSerializer.Serialize(arguments) +
+                "\n\nFFmpeg stderr:\n" + errors + "\n\nFilter graph:\n" + graph).ConfigureAwait(false);
+            return path;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Diagnostic persistence is best effort; never replace the real
+            // encoder failure with a secondary log-directory failure.
+            Debug.WriteLine("EXPRT-DIAGNOSTIC: " + exception.Message); return null;
+        }
     }
 
     /// <summary>

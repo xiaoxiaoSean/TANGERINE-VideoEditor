@@ -24,6 +24,7 @@ public partial class MainWindow
     /// </summary>
     private void OpenSettingsCategory(string name, UIElement content, bool selfScrolling = false)
     {
+        _mcpInspectorRefresh = null;
         CategoryList.ItemsSource = _categories.Concat(new[] { name }).ToArray();
         CategoryList.SelectedIndex = _categories.Length;
         LibraryContentGrid.Visibility = Visibility.Collapsed;
@@ -92,10 +93,19 @@ public partial class MainWindow
         close.Click += (_, _) => CloseSettingsTabs();
         panel.Children.Add(apply); panel.Children.Add(close);
         OpenSettingsCategory("关键帧设置", panel);
+        string clipId = clip.Id, keyId = key.Id;
+        _mcpInspectorRefresh = () =>
+        {
+            TimelineClip current = McpClip(clipId);
+            ClipKeyframe? updated = current.Keyframes.FirstOrDefault(item => item.Id == keyId);
+            if (updated is null) ShowSelectedObjectSettings();
+            else { _selectedKeyframe = updated; OpenKeyframeSettingsTab(current, McpOwner(current), updated); }
+        };
     }
 
     private void CloseSettingsTabs()
     {
+        _mcpInspectorRefresh = null;
         SettingsHost.Content = null;
         SettingsHost.Visibility = Visibility.Collapsed;
         LibraryContentGrid.Visibility = Visibility.Visible;

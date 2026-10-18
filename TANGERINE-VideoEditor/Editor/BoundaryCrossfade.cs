@@ -9,16 +9,19 @@ namespace TANGERINE_VideoEditor.Editor;
 /// </summary>
 public static class BoundaryCrossfade
 {
+    public static bool IsVisible(TimelineClip clip) => clip.Kind is
+        ClipKind.Video or ClipKind.Image or ClipKind.Color or ClipKind.Text;
+
     public static bool TryGetTransition(TimelineTrack track, TimelineClip incoming, double fps,
         out TimelineClip? prior, out ClipTransition? transition, out double duration)
     {
         transition = null;
         prior = null;
         duration = 0;
-        if (incoming.Kind is not (ClipKind.Video or ClipKind.Image or ClipKind.Color) ||
+        if (!IsVisible(incoming) ||
             !double.IsFinite(fps) || fps <= 0) return false;
         prior = track.Clips.Where(candidate => candidate.Id != incoming.Id &&
-                candidate.Kind is (ClipKind.Video or ClipKind.Image or ClipKind.Color) &&
+                IsVisible(candidate) &&
                 Math.Abs(candidate.StartSeconds + candidate.DurationSeconds - incoming.StartSeconds) <= .5 / fps)
             .OrderByDescending(candidate => candidate.StartSeconds).FirstOrDefault();
         if (prior is null) return false;
