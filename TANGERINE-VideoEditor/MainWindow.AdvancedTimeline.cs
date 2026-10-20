@@ -94,7 +94,7 @@ public partial class MainWindow
         if (_project.Tracks.Where(track => track.IsLocked).SelectMany(track => track.Clips)
             .Any(clip => priorIds.Contains(link ? clip.LinkGroupId : clip.GroupId)))
         {
-            StatusText.Text = "关联组包含锁定轨道片段 · EDIT-GROUP-LOCKED";
+            StatusText.Text = "关联组包含锁定轨道片段 · TMLNE0101";
             return;
         }
         SaveUndoState();
@@ -126,7 +126,7 @@ public partial class MainWindow
         if (_project.Tracks.Where(track => track.IsLocked).SelectMany(track => track.Clips)
             .Any(clip => ids.Contains(unlink ? clip.LinkGroupId : clip.GroupId)))
         {
-            StatusText.Text = "关联组包含锁定轨道片段 · EDIT-GROUP-LOCKED";
+            StatusText.Text = "关联组包含锁定轨道片段 · TMLNE0101";
             return;
         }
         SaveUndoState();
@@ -239,13 +239,13 @@ public partial class MainWindow
         }
         if (!double.IsFinite(_clipboardClip.DurationSeconds) || _clipboardClip.DurationSeconds <= 0)
         {
-            StatusText.Text = "剪贴板片段时长无效 · EDIT-INSERT";
+            StatusText.Text = "剪贴板片段时长无效 · TMLNE0102";
             return;
         }
         double insertion = Math.Max(0, _snapEnabled ? SnapTime(_project.Sequence.PlayheadSeconds) : _project.Sequence.PlayheadSeconds);
         if (!double.IsFinite(insertion) || insertion + _clipboardClip.DurationSeconds > 24 * 3600)
         {
-            StatusText.Text = "插入时间超出有效范围 · EDIT-INSERT";
+            StatusText.Text = "插入时间超出有效范围 · TMLNE0102";
             return;
         }
         SaveUndoState();
@@ -290,14 +290,14 @@ public partial class MainWindow
         }
         if (!double.IsFinite(_clipboardClip.DurationSeconds) || _clipboardClip.DurationSeconds <= 0)
         {
-            StatusText.Text = "剪贴板片段时长无效 · EDIT-OVERWRITE";
+            StatusText.Text = "剪贴板片段时长无效 · TMLNE0103";
             return;
         }
         double start = Math.Max(0, _snapEnabled ? SnapTime(_project.Sequence.PlayheadSeconds) : _project.Sequence.PlayheadSeconds);
         double end = start + _clipboardClip.DurationSeconds;
         if (!double.IsFinite(end) || end > 24 * 3600)
         {
-            StatusText.Text = "覆盖时间超出有效范围 · EDIT-OVERWRITE";
+            StatusText.Text = "覆盖时间超出有效范围 · TMLNE0103";
             return;
         }
         SaveUndoState();
@@ -376,24 +376,24 @@ public partial class MainWindow
         if (Math.Abs(offset.Value) < .000001) return;
         if (!_project.Tracks.Any(track => track.Clips.Contains(clip)))
         {
-            StatusText.Text = "片段已离开当前项目 · EDIT-SLIP-STATE";
+            StatusText.Text = "片段已离开当前项目 · TMLNE0104";
             return;
         }
         if (!ReferenceEquals(_selectedClip, clip))
         {
-            StatusText.Text = "片段已变化 · EDIT-SLIP-STATE";
+            StatusText.Text = "片段已变化 · TMLNE0104";
             return;
         }
         if (_selectedTrack is null || _selectedTrack.IsLocked ||
             !_selectedTrack.Clips.Contains(clip))
         {
-            StatusText.Text = "片段或轨道已变化 · EDIT-SLIP-STATE";
+            StatusText.Text = "片段或轨道已变化 · TMLNE0104";
             return;
         }
         if (clip.IsReversed) offset = -offset.Value;
         if (clip.MulticamGroupId is not null)
         {
-            StatusText.Text = "多机位切段不能单独滑移源素材 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段不能单独滑移源素材 · MLCAM0901";
             return;
         }
         MediaAsset? source = _project.Media.FirstOrDefault(media => media.Id == clip.MediaAssetId);
@@ -470,23 +470,23 @@ public partial class MainWindow
             candidate.StartSeconds < right.StartSeconds + right.DurationSeconds &&
             candidate.StartSeconds + candidate.DurationSeconds > left.StartSeconds))
         {
-            StatusText.Text = "切点附近存在重叠片段 · EDIT-ROLL-OVERLAP";
+            StatusText.Text = "切点附近存在重叠片段 · TMLNE0105";
             return;
         }
         if (left.Kind is not (ClipKind.Video or ClipKind.Audio) ||
             right.Kind is not (ClipKind.Video or ClipKind.Audio))
         {
-            StatusText.Text = "滚动编辑适用于相邻视频或音频片段 · EDIT-ROLL-TYPE";
+            StatusText.Text = "滚动编辑适用于相邻视频或音频片段 · TMLNE0106";
             return;
         }
         if (left.Kind != right.Kind)
         {
-            StatusText.Text = "滚动编辑需在同类相邻片段之间进行 · EDIT-ROLL-TYPE";
+            StatusText.Text = "滚动编辑需在同类相邻片段之间进行 · TMLNE0106";
             return;
         }
         if (left.MulticamGroupId is not null || right.MulticamGroupId is not null)
         {
-            StatusText.Text = "多机位切段暂不支持滚动编辑 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段暂不支持滚动编辑 · MLCAM0901";
             return;
         }
         double? offset = RequestTimeOffset("滚动编辑", "切点偏移（秒，可填负数）");
@@ -497,12 +497,12 @@ public partial class MainWindow
             Math.Abs(right.StartSeconds - cut) >
                 .5 / Math.Max(1, _project.Sequence.FramesPerSecond))
         {
-            StatusText.Text = "切点已变化 · EDIT-ROLL-STATE";
+            StatusText.Text = "切点已变化 · TMLNE0107";
             return;
         }
         if (!track.Clips.Contains(left) || !track.Clips.Contains(right) || track.IsLocked)
         {
-            StatusText.Text = "片段或轨道已变化 · EDIT-ROLL-STATE";
+            StatusText.Text = "片段或轨道已变化 · TMLNE0107";
             return;
         }
         double leftDuration = left.DurationSeconds + offset.Value;
@@ -543,25 +543,25 @@ public partial class MainWindow
             candidate.StartSeconds < right.StartSeconds &&
             candidate.StartSeconds + candidate.DurationSeconds > left.StartSeconds + left.DurationSeconds))
         {
-            StatusText.Text = "滑动范围存在重叠片段 · EDIT-SLIDE-OVERLAP";
+            StatusText.Text = "滑动范围存在重叠片段 · TMLNE0108";
             return;
         }
         if (middle.Kind is not (ClipKind.Video or ClipKind.Audio) ||
             left.Kind is not (ClipKind.Video or ClipKind.Audio) ||
             right.Kind is not (ClipKind.Video or ClipKind.Audio))
         {
-            StatusText.Text = "滑动编辑适用于视频或音频片段 · EDIT-SLIDE-TYPE";
+            StatusText.Text = "滑动编辑适用于视频或音频片段 · TMLNE0109";
             return;
         }
         if (left.Kind != middle.Kind || right.Kind != middle.Kind)
         {
-            StatusText.Text = "滑动编辑需在同类相邻片段之间进行 · EDIT-SLIDE-TYPE";
+            StatusText.Text = "滑动编辑需在同类相邻片段之间进行 · TMLNE0109";
             return;
         }
         if (left.MulticamGroupId is not null || right.MulticamGroupId is not null ||
             middle.MulticamGroupId is not null)
         {
-            StatusText.Text = "多机位切段暂不支持滑动编辑 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段暂不支持滑动编辑 · MLCAM0901";
             return;
         }
         double? offset = RequestTimeOffset("滑动编辑", "位置偏移（秒，可填负数）");
@@ -573,13 +573,13 @@ public partial class MainWindow
             Math.Abs(right.StartSeconds - middle.StartSeconds - middle.DurationSeconds) >
                 .5 / Math.Max(1, _project.Sequence.FramesPerSecond))
         {
-            StatusText.Text = "相邻切点已变化 · EDIT-SLIDE-STATE";
+            StatusText.Text = "相邻切点已变化 · TMLNE0110";
             return;
         }
         if (!track.Clips.Contains(left) || !track.Clips.Contains(middle) ||
             !track.Clips.Contains(right) || track.IsLocked)
         {
-            StatusText.Text = "片段或轨道已变化 · EDIT-SLIDE-STATE";
+            StatusText.Text = "片段或轨道已变化 · TMLNE0110";
             return;
         }
         double newLeftDuration = left.DurationSeconds + offset.Value;
@@ -626,7 +626,7 @@ public partial class MainWindow
         if (!double.TryParse(input.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
             !double.IsFinite(value))
         {
-            MessageBox.Show(this, "请输入有效的秒数。\n阶段代码：EDIT-TIME", "输入无效",
+            MessageBox.Show(this, "请输入有效的秒数。\n阶段代码：TMLNE0111", "输入无效",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }

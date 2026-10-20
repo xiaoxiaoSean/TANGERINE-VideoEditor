@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -26,6 +27,8 @@ public partial class MainWindow
 
     private void EditColorManagement()
     {
+        ProjectDocument colorProject = _project;
+        ProjectSequence colorSequence = _project.Sequence;
         string[] ids = ["Auto", "Rec709", "Rec601", "Rec2020"];
         string[] names = ["自动读取素材", "Rec.709", "Rec.601", "Rec.2020"];
         var dialog = new Window
@@ -57,6 +60,8 @@ public partial class MainWindow
             Padding = new Thickness(16, 5, 16, 5) };
         save.Click += (_, _) =>
         {
+            if (!ReferenceEquals(colorProject, _project) || !ReferenceEquals(colorSequence, _project.Sequence) ||
+                asset is not null && !colorProject.Media.Contains(asset)) { dialog.Close(); return; }
             string selectedInput = ids[Math.Clamp(input.SelectedIndex, 0, ids.Length - 1)];
             string selectedWorking = ids[Math.Clamp(working.SelectedIndex + 1, 1, ids.Length - 1)];
             string selectedOutput = ids[Math.Clamp(output.SelectedIndex + 1, 1, ids.Length - 1)];
@@ -93,7 +98,7 @@ public partial class MainWindow
         TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
         if (track is null || track.IsLocked)
         {
-            StatusText.Text = track is null ? "片段不在当前项目中 · VIS-EFFECT-TARGET" : "轨道已锁定";
+            StatusText.Text = track is null ? "片段不在当前项目中 · EFECT0907" : "轨道已锁定";
             return;
         }
         OpenObjectToolPage(clip, "效果列表", BuildEffectControls);
@@ -112,6 +117,9 @@ public partial class MainWindow
         root.Children.Add(SettingsHeader("效果控件", back));
         var panel = new StackPanel();
         root.Children.Add(panel);
+        bool CanEdit() => root.IsLoaded && root.IsVisible && IsCurrentEditableClip(clip);
+        bool CanEditEffect(ClipEffect effect) => CanEdit() && clip.Effects.Contains(effect);
+        bool CanEditMask(ClipMask mask) => CanEdit() && ReferenceEquals(clip.Mask, mask);
 
         void changed(string message)
         {
@@ -127,7 +135,7 @@ public partial class MainWindow
             var colorSpace = new Button { Content = "色彩管理 · 输入 / 工作 / 输出空间",
                 Padding = new Thickness(10, 5, 10, 5), HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 0, 0, 10) };
-            colorSpace.Click += (_, _) => EditColorManagement();
+            colorSpace.Click += (_, _) => { if (CanEdit()) EditColorManagement(); };
             panel.Children.Add(colorSpace);
             if (clip.Kind is ClipKind.Video or ClipKind.Image)
             {
@@ -136,8 +144,9 @@ public partial class MainWindow
                     Margin = new Thickness(0, 0, 0, 10) };
                 colorMatch.Click += async (_, _) =>
                 {
+                    if (!CanEdit()) return;
                     colorMatch.IsEnabled = false;
-                    try { await MatchClipColorAsync(clip, this); draw(); }
+                    try { await MatchClipColorAsync(clip, this); if (CanEdit()) draw(); }
                     finally { colorMatch.IsEnabled = true; }
                 };
                 panel.Children.Add(colorMatch);
@@ -155,7 +164,7 @@ public partial class MainWindow
                 SelectedIndex = Math.Max(0, Array.FindIndex(modes, item => item.Id == clip.BlendMode)) };
             blend.SelectionChanged += (_, _) =>
             {
-                if (blend.SelectedIndex < 0) return;
+                if (!CanEdit() || blend.SelectedIndex < 0) return;
                 string mode = modes[blend.SelectedIndex].Id;
                 if (mode == clip.BlendMode) return;
                 SaveUndoState(); clip.BlendMode = mode; changed("已更新混合模式");
@@ -170,6 +179,7 @@ public partial class MainWindow
                     HorizontalAlignment = HorizontalAlignment.Left };
                 reframe.Click += async (_, _) =>
                 {
+                    if (!CanEdit()) return;
                     reframe.IsEnabled = false;
                     try { await AutoReframeClipAsync(clip); }
                     finally { reframe.IsEnabled = true; }
@@ -179,8 +189,8 @@ public partial class MainWindow
 
             var mask = clip.Mask;
             var maskToggle = new CheckBox { Content = "启用片段蒙版", IsChecked = mask is not null, Margin = new Thickness(0, 0, 0, 8) };
-            maskToggle.Checked += (_, _) => { if (clip.Mask is not null) return; SaveUndoState(); clip.Mask = new ClipMask(); changed("已启用片段蒙版"); draw(); };
-            maskToggle.Unchecked += (_, _) => { if (clip.Mask is null) return; SaveUndoState(); clip.Mask = null; changed("已关闭片段蒙版"); draw(); };
+            maskToggle.Checked += (_, _) => { if (!CanEdit() || clip.Mask is not null) return; SaveUndoState(); clip.Mask = new ClipMask(); changed("已启用片段蒙版"); draw(); };
+            maskToggle.Unchecked += (_, _) => { if (!CanEdit() || clip.Mask is null) return; SaveUndoState(); clip.Mask = null; changed("已关闭片段蒙版"); draw(); };
             panel.Children.Add(maskToggle);
             if (mask is not null)
             {
@@ -193,7 +203,7 @@ public partial class MainWindow
                     Margin = new Thickness(12, 0, 0, 7), HorizontalAlignment = HorizontalAlignment.Stretch };
                 shape.SelectionChanged += (_, _) =>
                 {
-                    if (shape.SelectedIndex < 0) return;
+                    if (!CanEditMask(mask) || shape.SelectedIndex < 0) return;
                     string selected = shapes[shape.SelectedIndex].Id;
                     if (selected == mask.Shape) return;
                     SaveUndoState();
@@ -211,7 +221,7 @@ public partial class MainWindow
                 {
                     var pen = new Button { Content = "编辑自由路径顶点", Padding = new Thickness(10, 5, 10, 5),
                         Margin = new Thickness(12, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
-                    pen.Click += (_, _) => EditMaskPath(clip, mask, this);
+                    pen.Click += (_, _) => { if (CanEditMask(mask)) EditMaskPath(clip, mask, this); };
                     panel.Children.Add(pen);
                 }
                 AddMaskNumber("中心 X（%）", mask.CenterX, value => mask.CenterX = value);
@@ -240,12 +250,14 @@ public partial class MainWindow
                     var forward = new Button { Content = "向前跟踪蒙版", Padding = new Thickness(7, 3, 7, 3) };
                     backward.Click += async (_, _) =>
                     {
+                        if (!CanEditMask(mask)) return;
                         backward.IsEnabled = forward.IsEnabled = false;
                         try { await TrackSelectedMaskAsync(clip, forward: false); }
                         finally { backward.IsEnabled = forward.IsEnabled = true; }
                     };
                     forward.Click += async (_, _) =>
                     {
+                        if (!CanEditMask(mask)) return;
                         backward.IsEnabled = forward.IsEnabled = false;
                         try { await TrackSelectedMaskAsync(clip, forward: true); }
                         finally { backward.IsEnabled = forward.IsEnabled = true; }
@@ -256,7 +268,7 @@ public partial class MainWindow
                 }
                 var invert = new CheckBox { Content = "反转蒙版", IsChecked = mask.Invert,
                     Margin = new Thickness(12, 0, 0, 8) };
-                invert.Click += (_, _) => { SaveUndoState(); mask.Invert = invert.IsChecked == true; changed("已更新蒙版方向"); };
+                invert.Click += (_, _) => { if (!CanEditMask(mask)) return; SaveUndoState(); mask.Invert = invert.IsChecked == true; changed("已更新蒙版方向"); };
                 panel.Children.Add(invert);
             }
 
@@ -267,6 +279,7 @@ public partial class MainWindow
             var add = new Button { Content = "＋ 添加效果", Padding = new Thickness(10, 5, 10, 5) };
             add.Click += (_, _) =>
             {
+                if (!CanEdit()) return;
                 BuiltinPreset preset = catalog[Math.Clamp(addChoice.SelectedIndex, 0, catalog.Count - 1)];
                 SaveUndoState(); clip.Effects.Add(new ClipEffect { PresetId = preset.Id, Name = preset.Name });
                 changed($"已添加效果：{preset.Name}"); draw();
@@ -280,6 +293,7 @@ public partial class MainWindow
                 var remove = new Button { Content = "删除", Padding = new Thickness(8, 3, 8, 3) };
                 remove.Click += (_, _) =>
                 {
+                    if (!CanEditEffect(effect)) return;
                     SaveUndoState(); clip.Effects.Remove(effect); changed($"已移除效果：{effect.Name}");
                     // With the last effect gone the list has nothing left to
                     // adjust, so return to the object page instead of leaving an
@@ -294,9 +308,9 @@ public partial class MainWindow
                 up.Click += (_, _) => MoveEffect(effect, -1);
                 DockPanel.SetDock(up, Dock.Right); header.Children.Add(up);
                 var enabled = new CheckBox { Content = effect.Name, IsChecked = effect.IsEnabled, FontWeight = FontWeights.SemiBold };
-                enabled.Click += (_, _) => { SaveUndoState(); effect.IsEnabled = enabled.IsChecked == true; changed("已更新效果开关"); };
+                enabled.Click += (_, _) => { if (!CanEditEffect(effect)) return; SaveUndoState(); effect.IsEnabled = enabled.IsChecked == true; changed("已更新效果开关"); };
                 header.Children.Add(enabled); card.Children.Add(header);
-                AddEffectStrengthRow(card, effect);
+                AddEffectStrengthRow(card, effect, () => CanEditEffect(effect));
                 foreach (VisualEffectPipeline.Parameter parameter in VisualEffectPipeline.ParametersFor(effect.PresetId))
                 {
                     var row = new DockPanel { Margin = new Thickness(10, 2, 10, 5) };
@@ -305,6 +319,7 @@ public partial class MainWindow
                         var key = new Button { Content = "◇ 关键帧", Padding = new Thickness(7, 3, 7, 3) };
                         key.Click += (_, _) =>
                         {
+                            if (!CanEditEffect(effect)) return;
                             string property = VisualEffectPipeline.ParameterProperty(effect, parameter);
                             double time = Math.Clamp(_project.Sequence.PlayheadSeconds - clip.StartSeconds, 0, clip.DurationSeconds);
                             SaveUndoState();
@@ -319,10 +334,11 @@ public partial class MainWindow
                         Margin = new Thickness(6, 0, 0, 0) };
                     box.LostFocus += (_, _) =>
                     {
+                        if (!box.IsLoaded || !box.IsVisible || !CanEditEffect(effect)) return;
                         if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
                             !double.IsFinite(value) || value < parameter.Minimum || value > parameter.Maximum)
                         {
-                            MessageBox.Show(this, $"{parameter.Name}范围：{parameter.Minimum} 到 {parameter.Maximum}。\n阶段代码：VIS-EFFECT-PARAM", "参数无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            MessageBox.Show(this, $"{parameter.Name}范围：{parameter.Minimum} 到 {parameter.Maximum}。\n阶段代码：EFECT0901", "参数无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                             box.Text = VisualEffectPipeline.GetNumber(effect, parameter).ToString("0.###", CultureInfo.CurrentCulture);
                             return;
                         }
@@ -349,15 +365,16 @@ public partial class MainWindow
             var addTransition = new Button { Content = "＋ 添加转场", Padding = new Thickness(10, 5, 10, 5) };
             addTransition.Click += (_, _) =>
             {
+                if (!CanEdit()) return;
                 BuiltinPreset preset = transitions[Math.Clamp(transitionChoice.SelectedIndex, 0, transitions.Count - 1)];
                 TimelineTrack? owner = _project.Tracks.FirstOrDefault(track => track.Clips.Contains(clip));
-                if (owner is null) { StatusText.Text = "片段已从轨道移除 · VIS-TRANSITION-STATE"; return; }
+                if (owner is null) { StatusText.Text = "片段已从轨道移除 · EFECT0911"; return; }
                 TimelineClip? incoming = TryFindTransitionBoundary(owner, clip, null,
                     out TimelineClip? pairedIncoming) && pairedIncoming is not null
                     ? pairedIncoming : BoundaryCrossfade.IsVisible(clip) ? clip : null;
                 if (incoming is null)
                 {
-                    StatusText.Text = "只有可见对象可以添加转场 · VIS-TRANSITION-VISIBILITY";
+                    StatusText.Text = "只有可见对象可以添加转场 · EFECT0912";
                     return;
                 }
                 SaveUndoState();
@@ -373,7 +390,7 @@ public partial class MainWindow
                 var title = new DockPanel { Margin = new Thickness(10, 8, 10, 5) };
                 var removeTransition = new Button { Content = "删除", Padding = new Thickness(8, 3, 8, 3) };
                 removeTransition.Click += (_, _) =>
-                { SaveUndoState(); clip.Transitions.Remove(transition); changed("已删除转场"); draw(); };
+                { if (!CanEdit() || !clip.Transitions.Contains(transition)) return; SaveUndoState(); clip.Transitions.Remove(transition); changed("已删除转场"); draw(); };
                 DockPanel.SetDock(removeTransition, Dock.Right); title.Children.Add(removeTransition);
                 title.Children.Add(new TextBlock { Text = transition.Name, VerticalAlignment = VerticalAlignment.Center });
                 row.Children.Add(title);
@@ -383,6 +400,7 @@ public partial class MainWindow
                     Margin = new Thickness(0, 0, 7, 0) };
                 edge.SelectionChanged += (_, _) =>
                 {
+                    if (!CanEdit() || !clip.Transitions.Contains(transition)) return;
                     string value = edge.SelectedIndex == 1 ? "Out" : "In";
                     if (value == transition.Edge) return;
                     SaveUndoState(); transition.Edge = value; changed("已更新转场位置");
@@ -391,10 +409,11 @@ public partial class MainWindow
                     Margin = new Thickness(0, 0, 7, 0) };
                 duration.LostFocus += (_, _) =>
                 {
+                    if (!duration.IsLoaded || !duration.IsVisible || !CanEdit() || !clip.Transitions.Contains(transition)) return;
                     if (!double.TryParse(duration.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
                         !double.IsFinite(value) || value <= 0 || value > Math.Min(30, clip.DurationSeconds))
                     {
-                        MessageBox.Show(this, "转场时长无效。\n阶段代码：VIS-TRANSITION-DURATION", "输入无效",
+                        MessageBox.Show(this, "转场时长无效。\n阶段代码：EFECT0902", "输入无效",
                             MessageBoxButton.OK, MessageBoxImage.Warning);
                         duration.Text = transition.DurationSeconds.ToString("0.###", CultureInfo.CurrentCulture);
                         return;
@@ -407,7 +426,8 @@ public partial class MainWindow
                     Margin = new Thickness(0, 0, 6, 0) });
                 options.Children.Add(duration);
                 row.Children.Add(options);
-                AddTransitionParameterRows(row, transition, new Thickness(10, 0, 10, 9), changed);
+                AddTransitionParameterRows(row, transition, new Thickness(10, 0, 10, 9), changed,
+                    () => CanEdit() && clip.Transitions.Contains(transition));
                 panel.Children.Add(row);
             }
 
@@ -418,10 +438,11 @@ public partial class MainWindow
                     Margin = new Thickness(7, 0, 0, 0) };
                 box.LostFocus += (_, _) =>
                 {
+                    if (!box.IsLoaded || !box.IsVisible || !CanEdit() || !ReferenceEquals(mask, clip.Mask)) return;
                     if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
                         !double.IsFinite(value) || value < 0 || value > 100)
                     {
-                        MessageBox.Show(this, "蒙版数值须在 0% 到 100% 之间。\n阶段代码：VIS-MASK-PARAM", "蒙版参数无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(this, "蒙版数值须在 0% 到 100% 之间。\n阶段代码：EFECT0903", "蒙版参数无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                         box.Text = (current * 100).ToString("0.##", CultureInfo.CurrentCulture); return;
                     }
                     if (Math.Abs(value / 100 - current) < .000001) return;
@@ -435,6 +456,7 @@ public partial class MainWindow
 
         void MoveEffect(ClipEffect effect, int offset)
         {
+            if (!CanEditEffect(effect)) return;
             int index = clip.Effects.IndexOf(effect);
             int destination = index + offset;
             if (index < 0 || destination < 0 || destination >= clip.Effects.Count) return;
@@ -444,6 +466,7 @@ public partial class MainWindow
 
         void RecordMaskPositionKeyframe(string property, double value)
         {
+            if (!CanEdit() || clip.Mask is null) return;
             double time = Math.Clamp(_project.Sequence.PlayheadSeconds - clip.StartSeconds, 0, clip.DurationSeconds);
             SaveUndoState();
             ClipKeyframe? keyframe = clip.Keyframes.FirstOrDefault(item => item.Property == property &&
@@ -464,6 +487,7 @@ public partial class MainWindow
                 Margin = new Thickness(6, 0, 0, 0) };
             box.LostFocus += async (_, _) =>
             {
+                if (!box.IsLoaded || !box.IsVisible || !CanEditEffect(effect)) return;
                 string value = box.Text.Trim();
                 ProjectDocument pathProject = _project;
                 long pathGeneration = _projectGeneration;
@@ -479,21 +503,23 @@ public partial class MainWindow
                     catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
                         ArgumentException or NotSupportedException)
                     {
-                        StatusText.Text = $"LUT 路径检查失败 · VIS-LUT-FILE：{exception.Message}";
+                        if (box.IsLoaded && box.IsVisible && CanEditEffect(effect) &&
+                            ReferenceEquals(pathProject, _project) && pathGeneration == _projectGeneration)
+                            StatusText.Text = $"LUT 路径检查失败 · EFECT0904：{exception.Message}";
                         return;
                     }
-                    if (!box.IsVisible || !ReferenceEquals(pathProject, _project) ||
+                    if (!box.IsLoaded || !box.IsVisible || !CanEditEffect(effect) || !ReferenceEquals(pathProject, _project) ||
                         pathGeneration != _projectGeneration || box.Text.Trim() != value) return;
                     if (!validPath)
                     {
-                        MessageBox.Show(this, "请选择可读取的 .cube 文件。\n阶段代码：VIS-LUT-FILE",
+                        MessageBox.Show(this, "请选择可读取的 .cube 文件。\n阶段代码：EFECT0904",
                             "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                 }
                 else if (!isPath && !TryColorQuiet(value))
                 {
-                    MessageBox.Show(this, "请输入有效颜色。\n阶段代码：VIS-KEY-COLOR",
+                    MessageBox.Show(this, "请输入有效颜色。\n阶段代码：EFECT0905",
                         "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
@@ -505,8 +531,9 @@ public partial class MainWindow
                 var browse = new Button { Content = "浏览…", Padding = new Thickness(7, 3, 7, 3) };
                 browse.Click += (_, _) =>
                 {
+                    if (!CanEditEffect(effect)) return;
                     var picker = new OpenFileDialog { Title = "选择 3D LUT", Filter = "3D LUT|*.cube", CheckFileExists = true };
-                    if (picker.ShowDialog(this) != true) return;
+                    if (picker.ShowDialog(this) != true || !CanEditEffect(effect)) return;
                     SaveUndoState(); VisualEffectPipeline.SetString(effect, key, picker.FileName);
                     box.Text = picker.FileName; changed("已载入 3D LUT");
                 };
@@ -528,7 +555,7 @@ public partial class MainWindow
     /// gesture rather than once per step; a single drag used to push dozens of
     /// snapshots and make undo step through each one.
     /// </summary>
-    private void AddEffectStrengthRow(StackPanel card, ClipEffect effect)
+    private void AddEffectStrengthRow(StackPanel card, ClipEffect effect, Func<bool> canCommit)
     {
         double current = effect.Parameters.TryGetValue("intensity", out System.Text.Json.JsonElement stored) &&
             stored.ValueKind == System.Text.Json.JsonValueKind.Number ? stored.GetDouble() : 100;
@@ -552,6 +579,7 @@ public partial class MainWindow
         void EndGesture() => undoTaken = false;
         void Commit(double value)
         {
+            if (!row.IsLoaded || !row.IsVisible || !canCommit()) return;
             if (!undoTaken) { SaveUndoState(); undoTaken = true; }
             effect.Parameters["intensity"] = System.Text.Json.JsonSerializer.SerializeToElement(Math.Round(value, 1));
             MarkProjectDirty();
@@ -569,6 +597,7 @@ public partial class MainWindow
         slider.LostKeyboardFocus += (_, _) => EndGesture();
         box.LostKeyboardFocus += (_, _) =>
         {
+            if (!row.IsLoaded || !row.IsVisible || !canCommit()) return;
             if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double typed) ||
                 !double.IsFinite(typed))
             {
@@ -591,6 +620,7 @@ public partial class MainWindow
     /// </summary>
     private void EditMaskPath(TimelineClip clip, ClipMask mask, Window owner)
     {
+        if (!IsCurrentEditableClip(clip) || !ReferenceEquals(mask, clip.Mask)) return;
         var editor = new Window
         {
             Title = "编辑钢笔蒙版", Owner = owner, WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -739,9 +769,9 @@ public partial class MainWindow
         apply.Click += (_, _) =>
         {
             TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
-            if (track is null || track.IsLocked || !ReferenceEquals(mask, clip.Mask) || points.Count < 3)
+            if (!IsCurrentEditableClip(clip) || track is null || track.IsLocked || !ReferenceEquals(mask, clip.Mask) || points.Count < 3)
             {
-                MessageBox.Show(editor, "蒙版路径已失效或轨道被锁定。\n阶段代码：VIS-MASK-PATH",
+                MessageBox.Show(editor, "蒙版路径已失效或轨道被锁定。\n阶段代码：EFECT0906",
                     "无法应用路径", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -756,6 +786,7 @@ public partial class MainWindow
         {
             MediaAsset? asset = _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
             if (asset is null || clip.Kind is not (ClipKind.Video or ClipKind.Image)) return;
+            Func<bool> isCurrent = CaptureVisualAnalysisGuard(clip, asset);
             try
             {
                 if (asset.Width is > 0 && asset.Height is > 0)
@@ -767,12 +798,14 @@ public partial class MainWindow
                 height = Math.Max(16, height - height % 2);
                 BitmapSource picture = await ClipFrameRenderer.RenderClipFrameAsync(clip, asset, _project.Sequence,
                     _project.Sequence.PlayheadSeconds, width, height, includeVisualEffects: false);
+                if (!editor.IsVisible || !isCurrent() || !ReferenceEquals(mask, clip.Mask)) return;
                 image.Source = picture;
                 redraw();
             }
             catch (Exception exception) when (exception is ClipFrameException or IOException or InvalidOperationException)
             {
-                StatusText.Text = $"蒙版背景帧不可用 · VIS-MASK-PREVIEW：{exception.Message}";
+                if (editor.IsVisible && isCurrent())
+                    StatusText.Text = $"蒙版背景帧不可用 · EFECT0920：{exception.Message}";
             }
         };
         editor.ShowDialog();
@@ -788,14 +821,14 @@ public partial class MainWindow
         ClipMask? mask = clip.Mask;
         TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
         MediaAsset? asset = _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
-        if (mask is null || track is null || track.IsLocked || asset is null ||
+        if (!IsCurrentEditableClip(clip) || mask is null || track is null || track.IsLocked || asset is null ||
             !double.IsFinite(clip.DurationSeconds) || clip.DurationSeconds <= 0 ||
             !double.IsFinite(_project.Sequence.FramesPerSecond) || _project.Sequence.FramesPerSecond <= 0 ||
             !double.IsFinite(_project.Sequence.PlayheadSeconds) ||
             !double.IsFinite(mask.Width) || !double.IsFinite(mask.Height) ||
             !double.IsFinite(mask.CenterX) || !double.IsFinite(mask.CenterY))
         {
-            StatusText.Text = "请先选择可编辑的蒙版画面片段 · VIS-TRACK-VALIDATE";
+            StatusText.Text = "请先选择可编辑的蒙版画面片段 · EFECT0921";
             return;
         }
         double frameSeconds = 1 / _project.Sequence.FramesPerSecond;
@@ -803,7 +836,7 @@ public partial class MainWindow
             Math.Max(0, clip.DurationSeconds - frameSeconds));
         if (clip.Kind != ClipKind.Video)
         {
-            StatusText.Text = "运动跟踪需要视频片段 · VIS-TRACK-VALIDATE";
+            StatusText.Text = "运动跟踪需要视频片段 · EFECT0921";
             return;
         }
         double direction = forward ? 1 : -1;
@@ -811,10 +844,14 @@ public partial class MainWindow
         int frameLimit = (int)Math.Min(300, Math.Ceiling(Math.Abs(end - start) / frameSeconds));
         if (frameLimit < 1)
         {
-            StatusText.Text = "播放头已位于该方向的片段边界 · VIS-TRACK-RANGE";
+            StatusText.Text = "播放头已位于该方向的片段边界 · EFECT0922";
             return;
         }
         StatusText.Text = forward ? "正在本地向前跟踪蒙版…" : "正在本地向后跟踪蒙版…";
+        Func<bool> isCurrent = CaptureVisualAnalysisGuard(clip, asset);
+        TimelineClip sampleClip = CloneClip(clip);
+        MediaAsset sampleAsset = SnapshotVisualAnalysisAsset(asset);
+        ProjectSequence sampleSequence = JsonSerializer.Deserialize<ProjectSequence>(JsonSerializer.Serialize(_project.Sequence))!;
         try
         {
             // Track the source picture before clip effects and transforms;
@@ -828,8 +865,9 @@ public partial class MainWindow
             int sampleHeight = aspect >= 1 ? Math.Clamp((int)Math.Round(320 / aspect), 64, 320) : 320;
             double centerX = ClipAnimation.Evaluate(clip, "Mask.CenterX", clip.StartSeconds + start);
             double centerY = ClipAnimation.Evaluate(clip, "Mask.CenterY", clip.StartSeconds + start);
-            BitmapSource previous = await ClipFrameRenderer.RenderClipFrameAsync(clip, asset, _project.Sequence,
-                clip.StartSeconds + start, sampleWidth, sampleHeight, includeVisualEffects: false);
+            BitmapSource previous = await ClipFrameRenderer.RenderClipFrameAsync(sampleClip, sampleAsset, sampleSequence,
+                sampleClip.StartSeconds + start, sampleWidth, sampleHeight, _experienceLifetime.Token, includeVisualEffects: false);
+            if (!isCurrent() || !ReferenceEquals(mask, clip.Mask)) return;
             var path = new List<(double Time, double X, double Y)> { (start, centerX, centerY) };
             for (int step = 1; step <= frameLimit; step++)
             {
@@ -838,15 +876,17 @@ public partial class MainWindow
                 double local = Math.Clamp(start + direction * step * frameSeconds, 0,
                     Math.Max(0, clip.DurationSeconds - .001));
                 if (Math.Abs(local - path[^1].Time) < .0000001) break;
-                BitmapSource current = await ClipFrameRenderer.RenderClipFrameAsync(clip, asset, _project.Sequence,
-                    clip.StartSeconds + local, sampleWidth, sampleHeight, includeVisualEffects: false);
+                BitmapSource current = await ClipFrameRenderer.RenderClipFrameAsync(sampleClip, sampleAsset, sampleSequence,
+                    sampleClip.StartSeconds + local, sampleWidth, sampleHeight, _experienceLifetime.Token, includeVisualEffects: false);
+                if (!isCurrent() || !ReferenceEquals(mask, clip.Mask)) return;
                 (centerX, centerY) = await MaskMotionTracker.TrackStepAsync(previous, current,
                     centerX, centerY, mask.Width, mask.Height);
+                if (!isCurrent() || !ReferenceEquals(mask, clip.Mask)) return;
                 path.Add((local, centerX, centerY));
                 previous = current;
             }
             track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
-            if (track is null || track.IsLocked || !ReferenceEquals(mask, clip.Mask)) return;
+            if (!isCurrent() || track is null || track.IsLocked || !ReferenceEquals(mask, clip.Mask)) return;
             SaveUndoState();
             foreach ((double local, double x, double y) in path)
             {
@@ -869,9 +909,10 @@ public partial class MainWindow
             MarkProjectDirty(); RefreshTimeline(); SeekPreview(_project.Sequence.PlayheadSeconds);
             StatusText.Text = $"已记录 {path.Count} 帧蒙版轨迹，可继续手工修正";
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is ClipFrameException or IOException or InvalidOperationException or ArgumentException)
         {
-            StatusText.Text = $"蒙版跟踪失败 · VIS-TRACK-ANALYZE：{exception.Message}";
+            if (isCurrent()) StatusText.Text = $"蒙版跟踪失败 · EFECT0923：{exception.Message}";
         }
     }
 
@@ -884,24 +925,28 @@ public partial class MainWindow
     {
         TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
         MediaAsset? asset = _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
-        if (track is null || track.IsLocked || asset is null || asset.Width is not > 0 || asset.Height is not > 0)
+        if (!IsCurrentEditableClip(clip) || track is null || track.IsLocked || asset is null || asset.Width is not > 0 || asset.Height is not > 0)
         {
-            StatusText.Text = "自动重构图需要有尺寸信息的未锁定画面片段 · VIS-REFRAME-VALIDATE";
+            StatusText.Text = "自动重构图需要有尺寸信息的未锁定画面片段 · EFECT0924";
             return;
         }
         int sequenceWidth = _project.Sequence.Width;
         int sequenceHeight = _project.Sequence.Height;
         if (sequenceWidth <= 0 || sequenceHeight <= 0 || !double.IsFinite(clip.DurationSeconds) || clip.DurationSeconds <= 0)
         {
-            StatusText.Text = "序列画幅或片段时长无效 · VIS-REFRAME-VALIDATE";
+            StatusText.Text = "序列画幅或片段时长无效 · EFECT0924";
             return;
         }
         if (!double.IsFinite(_project.Sequence.PlayheadSeconds))
         {
-            StatusText.Text = "播放头时间无效 · VIS-REFRAME-VALIDATE";
+            StatusText.Text = "播放头时间无效 · EFECT0924";
             return;
         }
         StatusText.Text = "正在本地分析画面并生成重构图关键帧…";
+        Func<bool> isCurrent = CaptureVisualAnalysisGuard(clip, asset);
+        TimelineClip sampleClip = CloneClip(clip);
+        MediaAsset sampleAsset = SnapshotVisualAnalysisAsset(asset);
+        ProjectSequence sampleSequence = JsonSerializer.Deserialize<ProjectSequence>(JsonSerializer.Serialize(_project.Sequence))!;
         try
         {
             int count = (int)Math.Min(61, Math.Max(2, Math.Ceiling(clip.DurationSeconds) + 1));
@@ -916,17 +961,19 @@ public partial class MainWindow
             var centers = new List<(double Time, double X, double Y)>();
             foreach (double local in times)
             {
-                BitmapSource frame = await ClipFrameRenderer.RenderClipFrameAsync(clip, asset, _project.Sequence,
-                    clip.StartSeconds + Math.Min(local, Math.Max(0, clip.DurationSeconds -
-                        1 / Math.Max(1, asset.FramesPerSecond ?? _project.Sequence.FramesPerSecond))),
-                    sampleWidth, sampleHeight, includeVisualEffects: false);
+                BitmapSource frame = await ClipFrameRenderer.RenderClipFrameAsync(sampleClip, sampleAsset, sampleSequence,
+                    sampleClip.StartSeconds + Math.Min(local, Math.Max(0, sampleClip.DurationSeconds -
+                        1 / Math.Max(1, sampleAsset.FramesPerSecond ?? sampleSequence.FramesPerSecond))),
+                    sampleWidth, sampleHeight, _experienceLifetime.Token, includeVisualEffects: false);
+                if (!isCurrent()) return;
                 (double x, double y) = await AutoReframeAnalyzer.AnalyzeAsync(frame);
+                if (!isCurrent()) return;
                 centers.Add((local, x, y));
             }
             // Verify that the same clip is still editable after asynchronous
             // decoding. One undo snapshot covers the entire generated path.
             track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
-            if (track is null || track.IsLocked) return;
+            if (!isCurrent() || track is null || track.IsLocked) return;
             SaveUndoState();
             clip.Keyframes.RemoveAll(keyframe => keyframe.Property is "PositionX" or "PositionY" or "ScaleX" or "ScaleY");
             double fittedWidth = Math.Min(sequenceWidth / (double)asset.Width.Value,
@@ -954,9 +1001,10 @@ public partial class MainWindow
             MarkProjectDirty(); RefreshTimeline(); SeekPreview(_project.Sequence.PlayheadSeconds);
             StatusText.Text = $"已生成 {centers.Count} 个重构图位置采样点，可在关键帧编辑器中微调";
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is ClipFrameException or IOException or InvalidOperationException or ArgumentException)
         {
-            StatusText.Text = $"自动重构图失败 · VIS-REFRAME-ANALYZE：{exception.Message}";
+            if (isCurrent()) StatusText.Text = $"自动重构图失败 · EFECT0925：{exception.Message}";
         }
     }
 
@@ -967,13 +1015,14 @@ public partial class MainWindow
     /// </summary>
     private async Task MatchClipColorAsync(TimelineClip clip, Window owner)
     {
+        if (!IsCurrentEditableClip(clip)) return;
         var candidates = _project.Tracks.SelectMany(track => track.Clips)
             .Where(item => item.Id != clip.Id && item.Kind is (ClipKind.Video or ClipKind.Image) &&
                 _project.Media.Any(asset => asset.Id == item.MediaAssetId))
             .ToArray();
         if (candidates.Length == 0)
         {
-            StatusText.Text = "项目中没有可用的参考片段 · VIS-MATCH-REFERENCE";
+            StatusText.Text = "项目中没有可用的参考片段 · EFECT0926";
             return;
         }
         var picker = new Window { Title = "选择色彩参考片段", Owner = owner,
@@ -994,20 +1043,30 @@ public partial class MainWindow
         root.Children.Add(apply);
         picker.Content = root;
         if (picker.ShowDialog() != true) return;
+        if (!IsCurrentEditableClip(clip)) return;
         TimelineClip reference = candidates[Math.Clamp(choice.SelectedIndex, 0, candidates.Length - 1)];
         MediaAsset? sourceAsset = _project.Media.FirstOrDefault(asset => asset.Id == clip.MediaAssetId);
         MediaAsset? referenceAsset = _project.Media.FirstOrDefault(asset => asset.Id == reference.MediaAssetId);
         if (sourceAsset is null || referenceAsset is null) return;
+        Func<bool> isCurrent = CaptureVisualAnalysisGuard(clip, sourceAsset);
+        string referencePath = referenceAsset.EffectivePreviewPath;
+        bool IsCurrentMatch() => isCurrent() && _project.Media.Contains(referenceAsset) &&
+            _project.Tracks.Any(track => track.Clips.Contains(reference)) && referenceAsset.EffectivePreviewPath == referencePath;
+        TimelineClip sourceSample = CloneClip(clip), referenceSample = CloneClip(reference);
+        MediaAsset sourceMedia = SnapshotVisualAnalysisAsset(sourceAsset), referenceMedia = SnapshotVisualAnalysisAsset(referenceAsset);
+        ProjectSequence sampleSequence = JsonSerializer.Deserialize<ProjectSequence>(JsonSerializer.Serialize(_project.Sequence))!;
         try
         {
-            BitmapSource sourceFrame = await ClipFrameRenderer.RenderClipFrameAsync(clip, sourceAsset,
-                _project.Sequence, clip.StartSeconds + Math.Min(clip.DurationSeconds / 2, 1), 320, 180);
-            BitmapSource referenceFrame = await ClipFrameRenderer.RenderClipFrameAsync(reference, referenceAsset,
-                _project.Sequence, reference.StartSeconds + Math.Min(reference.DurationSeconds / 2, 1), 320, 180);
+            BitmapSource sourceFrame = await ClipFrameRenderer.RenderClipFrameAsync(sourceSample, sourceMedia,
+                sampleSequence, sourceSample.StartSeconds + Math.Min(sourceSample.DurationSeconds / 2, 1), 320, 180, _experienceLifetime.Token);
+            if (!IsCurrentMatch()) return;
+            BitmapSource referenceFrame = await ClipFrameRenderer.RenderClipFrameAsync(referenceSample, referenceMedia,
+                sampleSequence, referenceSample.StartSeconds + Math.Min(referenceSample.DurationSeconds / 2, 1), 320, 180, _experienceLifetime.Token);
+            if (!IsCurrentMatch()) return;
             (double sourceLuma, double sourceRed, double sourceBlue) = await ColorScopeRenderer.AverageColorAsync(sourceFrame);
             (double referenceLuma, double referenceRed, double referenceBlue) = await ColorScopeRenderer.AverageColorAsync(referenceFrame);
             TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
-            if (track is null || track.IsLocked) return;
+            if (!IsCurrentMatch() || track is null || track.IsLocked) return;
             SaveUndoState();
             double exposure = Math.Clamp((referenceLuma - sourceLuma) * 4, -3, 3);
             double red = Math.Clamp((referenceRed - sourceRed) * .7, -.5, .5);
@@ -1031,10 +1090,36 @@ public partial class MainWindow
                 clip.Effects.Add(effect);
             }
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is ClipFrameException or IOException or InvalidOperationException or ArgumentException)
         {
-            StatusText.Text = $"色彩匹配失败 · VIS-MATCH-ANALYZE：{exception.Message}";
+            if (IsCurrentMatch()) StatusText.Text = $"色彩匹配失败 · EFECT0927：{exception.Message}";
         }
+    }
+
+    // Inspector replacement, undo, source relinking and sequence switching
+    // invalidate analysis results even when the old clip object still exists.
+    private Func<bool> CaptureVisualAnalysisGuard(TimelineClip clip, MediaAsset asset)
+    {
+        ProjectDocument owner = _project;
+        ProjectSequence sequence = _project.Sequence;
+        long generation = _projectGeneration, revision = _projectRevision;
+        object? inspector = SettingsHost.Content;
+        string path = asset.EffectivePreviewPath;
+        return () => !_experienceLifetime.IsCancellationRequested && IsCurrentEditableClip(clip) &&
+            ReferenceEquals(owner, _project) && ReferenceEquals(sequence, _project.Sequence) &&
+            generation == _projectGeneration && revision == _projectRevision &&
+            ReferenceEquals(inspector, SettingsHost.Content) && owner.Media.Contains(asset) &&
+            clip.MediaAssetId == asset.Id && asset.EffectivePreviewPath == path;
+    }
+
+    private static MediaAsset SnapshotVisualAnalysisAsset(MediaAsset asset)
+    {
+        var snapshot = JsonSerializer.Deserialize<MediaAsset>(JsonSerializer.Serialize(asset))!;
+        snapshot.SourcePath = asset.EffectivePreviewPath;
+        snapshot.ProxyPath = null;
+        snapshot.UseProxy = false;
+        return snapshot;
     }
 
     private static bool TryColorQuiet(string value)
@@ -1062,34 +1147,51 @@ public partial class MainWindow
         root.Children.Add(controls);
         var image = new Image { Stretch = Stretch.Uniform };
         Grid.SetRow(image, 1); root.Children.Add(image);
+        long scopeRequest = 0;
         async Task update()
         {
+            long request = ++scopeRequest;
+            int requestedMode = mode.SelectedIndex;
+            ProjectDocument project = _project;
+            ProjectSequence sequence = _project.Sequence;
+            long revision = _projectRevision;
+            double time = sequence.PlayheadSeconds;
+            bool IsCurrent() => request == scopeRequest && dialog.IsVisible &&
+                !_experienceLifetime.IsCancellationRequested && mode.SelectedIndex == requestedMode &&
+                ReferenceEquals(project, _project) && ReferenceEquals(sequence, _project.Sequence) &&
+                revision == _projectRevision && sequence.PlayheadSeconds == time;
+            image.Source = null;
             try
             {
+                BitmapSource scope;
                 if (PreviewRenderedFrame.Source is System.Windows.Media.Imaging.BitmapSource rendered)
-                    image.Source = await ColorScopeRenderer.RenderBitmapAsync(rendered, mode.SelectedIndex);
+                    scope = await ColorScopeRenderer.RenderBitmapAsync(rendered, requestedMode);
                 else if (PreviewImage.Source is System.Windows.Media.Imaging.BitmapSource still)
-                    image.Source = await ColorScopeRenderer.RenderBitmapAsync(still, mode.SelectedIndex);
+                    scope = await ColorScopeRenderer.RenderBitmapAsync(still, requestedMode);
                 else if (_activePreviewVisualClip is { Kind: ClipKind.Video } active &&
                     _project.Media.FirstOrDefault(asset => asset.Id == active.MediaAssetId) is MediaAsset asset)
                 {
-                    var frame = await ClipFrameRenderer.RenderClipFrameAsync(active, asset, _project.Sequence,
-                        _project.Sequence.PlayheadSeconds,
+                    var frame = await ClipFrameRenderer.RenderClipFrameAsync(CloneClip(active), SnapshotVisualAnalysisAsset(asset), sequence,
+                        time,
                         Math.Clamp((int)PreviewVisualLayer.ActualWidth, 1, 1024),
-                        Math.Clamp((int)PreviewVisualLayer.ActualHeight, 1, 1024));
-                    image.Source = await ColorScopeRenderer.RenderBitmapAsync(frame, mode.SelectedIndex);
+                        Math.Clamp((int)PreviewVisualLayer.ActualHeight, 1, 1024), _experienceLifetime.Token);
+                    if (!IsCurrent()) return;
+                    scope = await ColorScopeRenderer.RenderBitmapAsync(frame, requestedMode);
                 }
-                else image.Source = await ColorScopeRenderer.RenderCurrentFrameAsync(
-                    PreviewVisualLayer, PreviewOverlay, mode.SelectedIndex);
+                else scope = await ColorScopeRenderer.RenderCurrentFrameAsync(
+                    PreviewVisualLayer, PreviewOverlay, requestedMode);
+                if (IsCurrent()) image.Source = scope;
             }
+            catch (OperationCanceledException) { }
             catch (Exception exception) when (exception is InvalidOperationException or ArgumentException or IOException or ClipFrameException)
             {
-                StatusText.Text = $"示波器更新失败 · VIS-SCOPE-RENDER：{exception.Message}";
+                if (IsCurrent()) StatusText.Text = $"示波器更新失败 · EFECT0928：{exception.Message}";
             }
         }
         mode.SelectionChanged += async (_, _) => await update();
         refresh.Click += async (_, _) => await update();
         dialog.Content = root;
+        dialog.Closed += (_, _) => scopeRequest++;
         dialog.Loaded += async (_, _) => await update();
         dialog.ShowDialog();
     }

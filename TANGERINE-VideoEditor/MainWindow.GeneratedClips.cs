@@ -38,7 +38,7 @@ public partial class MainWindow
             !double.IsFinite(_project.Sequence.FramesPerSecond) ||
             _project.Sequence.FramesPerSecond <= 0)
         {
-            StatusText.Text = "播放头或序列帧率无效 · GEN-RANGE";
+            StatusText.Text = "播放头或序列帧率无效 · GNRTR0001";
             return;
         }
         TimelineTrack? track = _selectedTrack is { IsLocked: false, Kind: not TrackKind.Audio }
@@ -49,7 +49,7 @@ public partial class MainWindow
         track ??= ResolveDropTarget(kind, -1);
         if (track is null || track.IsLocked || track.Kind == TrackKind.Audio)
         {
-            StatusText.Text = "没有未锁定的画面轨道 · GEN-TARGET";
+            StatusText.Text = "没有未锁定的画面轨道 · GNRTR0002";
             return;
         }
         double duration = 5;
@@ -61,7 +61,7 @@ public partial class MainWindow
         if (duration < frame || track.Clips.Any(clip =>
             clip.StartSeconds <= start && clip.StartSeconds + clip.DurationSeconds > start))
         {
-            StatusText.Text = "播放头所在轨道没有可用区间 · GEN-RANGE";
+            StatusText.Text = "播放头所在轨道没有可用区间 · GNRTR0001";
             return;
         }
         string color = "#30343D";
@@ -77,7 +77,7 @@ public partial class MainWindow
         if (track.Clips.Any(clip => clip.StartSeconds < start + duration &&
             clip.StartSeconds + clip.DurationSeconds > start))
         {
-            StatusText.Text = "轨道在此区间发生变化，请重新创建 · GEN-RANGE";
+            StatusText.Text = "轨道在此区间发生变化，请重新创建 · GNRTR0001";
             return;
         }
         SaveUndoState();
@@ -135,7 +135,7 @@ public partial class MainWindow
         {
             if (!IsRgbHex(input.Text))
             {
-                StatusText.Text = "颜色需为 #RRGGBB 格式 · GEN-COLOR";
+                StatusText.Text = "颜色需为 #RRGGBB 格式 · GNRTR0003";
                 return;
             }
             dialog.DialogResult = true;

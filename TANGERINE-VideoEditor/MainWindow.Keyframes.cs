@@ -51,6 +51,7 @@ public partial class MainWindow
 
     private void OpenKeyframeSettingsTab(TimelineClip clip, TimelineTrack track, ClipKeyframe key)
     {
+        if (!IsCurrentEditableClip(clip) || !track.Clips.Contains(clip) || !clip.Keyframes.Contains(key)) return;
         var panel = new StackPanel { Margin = new Thickness(4) };
         var header = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 0, 0, 14) };
         header.Children.Add(new TextBlock { Text = $"关键帧设置 · {KeyframePropertyName(key.Property)}",
@@ -81,6 +82,8 @@ public partial class MainWindow
         var close = new Button { Content = "关闭设置", Padding = new Thickness(12, 7, 12, 7), Margin = new Thickness(0, 8, 0, 0) };
         apply.Click += (_, _) =>
         {
+            if (!panel.IsLoaded || !panel.IsVisible || !IsCurrentEditableClip(clip) ||
+                !track.Clips.Contains(clip) || !clip.Keyframes.Contains(key)) return;
             if (!double.TryParse(value.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double parsed) || !double.IsFinite(parsed))
             { StatusText.Text = "关键帧数值无效"; return; }
             string selectedName = property.SelectedItem as string ?? KeyframePropertyName(key.Property);
@@ -152,6 +155,7 @@ public partial class MainWindow
                 Value = ClipAnimation.Evaluate(clip, property, _project.Sequence.PlayheadSeconds) };
             clip.Keyframes.Add(key);
         }
+        if (!ReferenceEquals(_selectedClip, clip)) SelectClip(clip);
         _selectedKeyframe = key;
         MarkProjectDirty(); RefreshTimeline();
         OpenKeyframeSettingsTab(clip, track, key);
@@ -171,7 +175,7 @@ public partial class MainWindow
             StatusText.Text = track is null ? "片段已不在当前项目中" : "轨道已锁定，无法编辑关键帧";
             return;
         }
-        if (_selectedKeyframe is null)
+        if (_selectedKeyframe is null || !clip.Keyframes.Contains(_selectedKeyframe))
         {
             AddKeyframeAtPlayhead();
             return;

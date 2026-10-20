@@ -15,7 +15,7 @@ public static class MediaThumbnailCache
         string path = asset.EffectivePreviewPath;
         var file = new FileInfo(path);
         double sample = asset.Kind == MediaKind.Image ? 0 : Math.Floor(Math.Max(0, seconds) * 2) / 2;
-        string key = $"{path}:{file.Length}:{file.LastWriteTimeUtc.Ticks}:{sample:R}";
+        string key = $"{asset.Kind}:{path}:{file.Length}:{file.LastWriteTimeUtc.Ticks}:{sample:R}";
         lock (Frames)
         {
             if (Frames.TryGetValue(key, out var frame) && !frame.IsCanceled && !frame.IsFaulted) return frame.WaitAsync(token);
@@ -26,7 +26,11 @@ public static class MediaThumbnailCache
                 if (Frames.TryGetValue(oldest, out var pending) && !pending.IsCompleted) break;
                 Order.Dequeue(); Frames.Remove(oldest);
             }
-            frame = DecodeAsync(asset, sample, key, token);
+            // A queued decoder must read the same file represented by its key.
+            // Relinking and proxy switches can mutate the live asset while it
+            // waits for a decoder slot, so never pass that mutable object on.
+            var source = new MediaAsset { SourcePath = path, Kind = asset.Kind };
+            frame = DecodeAsync(source, sample, key, token);
             Frames[key] = frame; Order.Enqueue(key); return frame;
         }
     }

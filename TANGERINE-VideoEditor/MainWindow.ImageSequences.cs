@@ -36,9 +36,10 @@ public partial class MainWindow
         if (picker.ShowDialog(this) != true) return;
         ProjectDocument target = _project;
         long generation = _projectGeneration;
+        bool IsCurrentProject() => ReferenceEquals(target, _project) && generation == _projectGeneration;
         double fps = _project.Sequence.FramesPerSecond;
         if (!double.IsFinite(fps) || fps <= 0)
-        { StatusText.Text = "图像序列帧率无效 · MED-SEQUENCE-VALIDATE"; return; }
+        { StatusText.Text = "图像序列帧率无效 · IMGSQ0901"; return; }
         _imageSequenceImportInProgress = true;
         StatusText.Text = "正在生成图像序列媒体…";
         try
@@ -47,7 +48,7 @@ public partial class MainWindow
             string[] frames = await Task.Run(() => DiscoverImageSequence(source));
             if (!ReferenceEquals(target, _project) || generation != _projectGeneration) return;
             if (frames.Length < 2)
-            { StatusText.Text = "至少需要两个连续编号的图像 · MED-SEQUENCE-VALIDATE"; return; }
+            { StatusText.Text = "至少需要两个连续编号的图像 · IMGSQ0901"; return; }
             // Encoding creates a temporary video before the project archive
             // receives it. Check that staging volume without blocking WPF.
             await ProjectFileService.EnsureImportCapacityAsync(frames);
@@ -60,12 +61,13 @@ public partial class MainWindow
                 return;
             }
             IReadOnlyList<MediaAsset> imported = await ImportMediaPathsAsync([output]);
+            if (!IsCurrentProject()) return;
             if (imported.Count == 0)
             {
                 // No asset owns this temporary file when the regular import
                 // pipeline declines the result (for example, insufficient space).
                 await Task.Run(() => File.Delete(output));
-                StatusText.Text = "图像序列已生成，但未加入媒体区 · MED-SEQUENCE-IMPORT";
+                StatusText.Text = "图像序列已生成，但未加入媒体区 · IMGSQ0902";
                 return;
             }
             MediaAsset asset = imported[0];
@@ -75,19 +77,20 @@ public partial class MainWindow
             MarkProjectDirty();
             RefreshLibrary();
             if (_projectPath is not null && !await SaveProjectToAsync(_projectPath))
-            { StatusText.Text = "图像序列已加入当前会话，但项目尚未保存 · MED-SEQUENCE-SAVE"; return; }
+            { if (IsCurrentProject()) StatusText.Text = "图像序列已加入当前会话，但项目尚未保存 · IMGSQ0903"; return; }
+            if (!IsCurrentProject()) return;
             StatusText.Text = $"已导入图像序列：{frames.Length} 帧";
         }
-        catch (OperationCanceledException) { StatusText.Text = "图像序列导入已取消"; }
+        catch (OperationCanceledException) { if (IsCurrentProject()) StatusText.Text = "图像序列导入已取消"; }
         catch (ProjectFileException exception)
         {
-            ShowProjectError(exception);
+            if (IsCurrentProject()) ShowProjectError(exception);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             ArgumentException or InvalidOperationException or ImageSequenceException)
         {
-            string stage = exception is ImageSequenceException sequence
-                ? $"MED-SEQUENCE-{sequence.StageCode}" : "MED-SEQUENCE-IMPORT";
+            if (!IsCurrentProject()) return;
+            string stage = Tools.StageCodes.Resolve(exception, "IMGSQ0902");
             StatusText.Text = $"图像序列导入失败 · {stage}：{exception.Message}";
         }
         finally { _imageSequenceImportInProgress = false; }

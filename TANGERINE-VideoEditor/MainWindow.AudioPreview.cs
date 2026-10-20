@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Text.Json;
 using System.Windows.Media;
 using TANGERINE_VideoEditor.Editor;
@@ -43,7 +43,7 @@ public partial class MainWindow
         InitializePlaybackMeters();
         _timelineAudioPlayer.MediaOpened += (_, _) =>
         {
-            if (_timelineAudioFile is null || !_timelineAudioHasSound) return;
+            if (!CurrentAudioPreviewOwnsPlayer()) return;
             _timelineAudioPlayerOpened = true;
             if (!_isPlaying) return;
             _timelineAudioPlayer.Position = TimeSpan.FromSeconds(Math.Clamp(
@@ -53,6 +53,7 @@ public partial class MainWindow
         };
         _timelineAudioPlayer.MediaFailed += (_, args) =>
         {
+            if (!CurrentAudioPreviewOwnsPlayer()) return;
             StatusText.Text = $"音频监听失败 · {AudioStageCode.Process}：{args.ErrorException?.Message ?? "未知媒体错误"}";
             string? failedFile = _timelineAudioFile;
             _timelineAudioPlayer.Close();
@@ -61,8 +62,15 @@ public partial class MainWindow
             _timelineAudioHasSound = false;
             _timelineAudioPlayerRunning = false;
             _timelineAudioPlayerOpened = false;
+            _meterPath = null;
+            _meterSamples = [];
         };
     }
+
+    private bool CurrentAudioPreviewOwnsPlayer() => _timelineAudioHasSound &&
+        _timelineAudioFile is not null && _timelineAudioGeneration == _projectGeneration &&
+        _timelineAudioRevision == MonitorRevision && _timelineAudioPlayer.Source?.IsFile == true &&
+        string.Equals(_timelineAudioPlayer.Source.LocalPath, _timelineAudioFile, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Called after each sequence seek, including playback ticks.</summary>
     private void UpdateAudioPreview(double seconds)
@@ -77,7 +85,6 @@ public partial class MainWindow
         if (_timelineAudioReady &&
             (_timelineAudioReadyRevision != MonitorRevision ||
                 _timelineAudioReadyGeneration != _projectGeneration ||
-                seconds < _timelineAudioReadyStart - .03 ||
                 seconds >= _timelineAudioReadyStart + MonitorWindowSeconds))
         {
             DeleteAudioPreviewFile(_timelineAudioReadyFile);
@@ -95,6 +102,10 @@ public partial class MainWindow
         {
             // An invalidated or stopped FFmpeg process still occupies the
             // single render slot until it exits. Retain only the latest seek.
+            // Pause the old mix immediately; waiting for the cancelled worker
+            // would keep obsolete sound audible after an edit or seek.
+            _timelineAudioPlayer.Pause();
+            _timelineAudioPlayerRunning = false;
             _timelineAudioQueuedStart = seconds;
             return;
         }
@@ -198,6 +209,8 @@ public partial class MainWindow
         _timelineAudioReadyRevision = -1;
         _timelineAudioReadyGeneration = -1;
         _timelineAudioQueuedStart = null;
+        _meterPath = null;
+        _meterSamples = [];
     }
 
     private async Task RenderAudioPreviewWindowAsync(double startSeconds)
@@ -345,7 +358,7 @@ public partial class MainWindow
         {
             try { File.Delete(path); }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            { System.Diagnostics.Debug.WriteLine($"AUDIO-PREVIEW-CLEANUP: {exception}"); }
+            { System.Diagnostics.Debug.WriteLine($"AUDIO0901: {exception}"); }
         });
     }
 }

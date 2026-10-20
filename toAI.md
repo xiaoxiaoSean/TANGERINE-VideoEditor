@@ -137,6 +137,8 @@ editor_control_release({})
 
 `export_start`、捕获、示例视频、部分分析、代理和字幕识别返回任务数据，其中 `jobId` 是后续查询依据。任务状态为 `running`、`completed`、`failed`、`cancelled`；进度为 0–1。`completed` 后读取 `result`，失败读取 `error` 和 `stageCode`。任务字段遵循实际返回对象，不把任务 ID 当成输出路径。
 
+`export_start` 会自动在目标实例显示只读、非模态的视频导出进度窗口：准备序列和文字图形时显示准备状态，编码时显示百分比，任务成功、失败或取消后自动关闭。该窗口不解除 MCP 操作锁定，也不阻止用户在主窗口用滚轮浏览轨道。AI 不需要点击或操作此窗口；取消请调用 `jobs_cancel({jobId})`，继续等到最终状态再释放控制权。关闭进度窗口不会取消任务；不同任务的进度和窗口按各自 `jobId` 独立更新。进度窗口创建、归属或 UI 调度失败使用阶段码 `EXPRT0901`。
+
 ```text
 project_validate({})
 preview_capture({path: "绝对路径\\检查帧.png", timeSeconds: 2})
@@ -157,6 +159,26 @@ editor_control_release({})
 ### 6.4 音频、字幕、分析与交换
 
 音频处理用 `audio_settings_get/update`，不手工猜测扩展数据键。分析先用 `media_analyze`，需要只读建议时采用支持的 `apply:false`，确认后再应用。变速通过 `remap_set` 或公开模型，核对源范围。
+
+### 6.5 内置纯音乐
+
+“内置音乐”区在原有分类后新增，`workspace_set({patch:{categoryIndex:5}})` 可显示；0 媒体、1 文字、2 效果、3 转场、4 贴纸保持不变。用 `music_list({query?,genre?,mood?})` 读取实际曲目，返回 `total/count/tracks/genres/moods`。每首曲目含 `id/title/artist/genre/mood/durationSeconds/audioPath/thumbnailPath/sourceUrl/licenseId/licenseUrl`；本地音频和封面随软件打包，试听、剪辑不需要联网下载。`catalog_list({category:"music"})` 返回相同曲目列表，`catalog_list({category:"all"})` 也包含 `music`。
+
+`music_preview({musicId})` 试听时，曲目缩略图同步显示在主预览器中，不修改工程；返回 `requested:true` 表示已提交播放请求，实际解码仍可失败。返回的 `artworkPath/artworkLoading/artworkVisible` 表示当前封面路径与加载、显示状态。曲目 ID 必须来自当前实例目录，不把曲目 ID 当成时间线轨道 ID。试听与示例预览、时间线播放共用停止及归属清理规则，选择新对象或切换项目时旧请求失效。
+
+`music_stop({})` 停止试听并释放播放器，主预览器恢复工程画面。`editor_get_state().preview.mode` 区分 `music`（音乐试听及其封面）、`catalog`（视觉示例生成或播放）、`timeline`（工程预览）。试听暂停后仍保留 `music` 模式和封面。`preview.music` 返回当前试听的 `musicId/playing/timeSeconds/durationSeconds` 及 `artworkPath/artworkLoading/artworkVisible/artworkRequest`；封面请求、加载和显示变化也会更新 `uiRevision`。封面仅用于试听展示，不会添加到时间线或导出视频。`preview_pause` 面向时间线，停止音乐试听请使用专用命令。
+
+`music_add({musicId,trackId?,startSeconds?,sourceInSeconds?,durationSeconds?,volume?,fadeInSeconds?,fadeOutSeconds?,snap?})` 插入可撤销的音频片段。`trackId` 是目标时间线音频轨道；省略时使用当前或第一个未锁定音频轨道，无可用轨道则创建“音乐”轨道。`startSeconds` 默认当前播放头，`sourceInSeconds` 默认 0，`durationSeconds` 默认源曲剩余时长，不能超出曲目。`volume` 默认 1、范围 0–4；淡入淡出默认 0，各自范围 0–1 秒且不能超过片段时长。`snap` 默认 true，遵从全局和目标轨道吸附开关；需要精确时间时设为 false。返回音乐、素材、片段和目标轨道 ID，及实际插入时间和许可来源。
+
+```text
+music_list({genre:"钢琴"})
+music_preview({musicId: 实际曲目ID})
+music_add({musicId: 实际曲目ID, startSeconds:0, durationSeconds:30,
+           volume:0.35, fadeInSeconds:1, fadeOutSeconds:1, snap:false})
+project_save({})
+```
+
+插入后的音乐是普通音频素材与片段，可继续使用 `clip_trim`、`clip_update`、`audio_settings_update`、`keyframe_set`、`audio_remix`。保存 `.tvep` 时会打包所用音频；作者和许可来源保留在素材元数据中。目录标注的授权以每首曲目的 `licenseId/licenseUrl/sourceUrl` 为准，保留来源记录，不把免版税误解为未登记的第三方作品也可任意使用。原有 `catalog_schema/catalog_preview` 只处理视觉预设，音乐使用专用命令。
 
 字幕识别依赖实际 whisper.cpp 可执行文件和本地模型；缺失时报告缺失，不能生成占位字幕冒充识别。录音开始/停止/取消对应独立工具，真实采集仅在用户要求录音时进行。
 
@@ -5667,7 +5689,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 
 ### `catalog_list`
 
-列出内置标题、特效、转场及其稳定预设 ID。
+列出内置标题、特效、转场、贴纸和音乐及其稳定 ID；`category:"music"` 返回内置曲目，音乐试听和插入使用专用命令。
 
 元数据：只读。只读工具同样需要控制权（控制状态查询除外）。
 
@@ -6936,7 +6958,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
         "categoryIndex": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 4
+          "maximum": 5
         },
         "globalMute": {
           "type": "boolean"
@@ -8635,7 +8657,7 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
     "categoryIndex": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 4
+      "maximum": 5
     },
     "globalMute": {
       "type": "boolean"
@@ -8935,3 +8957,10 @@ dotnet publish TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -c Release -o 
 - 快捷键：workspace_get 返回可重绑命令列表；workspace_set 的 shortcuts 支持新增逐帧、波纹、吸附、磁性和播放动作。支持单键；文本输入时不执行剪辑命令，同一自定义手势不能重复分配。
 
 仍使用已连接的 MCP 工具与现有 .NET 服务。新增功能不需要编写 Node 桥接、启动HTTP服务器或操作用户界面。
+
+## StageCode 与过期操作
+
+- `error.stageCode` 与后台任务的 `stageCode` 固定使用五个 ASCII 大写字母加四个数字。完整登记位于程序资源 `Resources/StageList.txt`，开发说明位于 `dev_doc1/StageCodeAndStateOwnership.md`。保留原始代码用于诊断，不将界面文字或枚举名称当成阶段码。
+- `MCPRT0003` 表示工程版本已变化；先重新读取工程状态、对象 ID 与 revision，再决定是否重试。示例任务被新的选择、工程、序列或会话替代后，不应强行继续播放旧结果。
+- `catalog_preview` 返回后台任务，必须通过 `jobs_status` 等待 `completed` 并检查错误；示例播放器打开或解码失败也不表示示例已成功播放。显式切换选择或工程会终止对应旧预览。
+- 修改代码时，异步 UI 回写需要核对项目/序列、请求世代、对象引用及来源；不要仅凭相同文件名或对象 ID 接受旧结果。遵守用户当前的检查范围；用户要求静态检查或不要测试时，不自行运行测试、程序或构建。

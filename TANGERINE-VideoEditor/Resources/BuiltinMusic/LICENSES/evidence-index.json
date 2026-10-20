@@ -1,0 +1,69 @@
+{
+  "collectedAtUtc": "2026-10-20T13:11:02+00:00",
+  "files": [
+    {
+      "file": "LICENSES/albums/a-tale-is-never-forgotten.html",
+      "sha256": "fdefb8a89de0456e5d56279ba4054af9599745803a9f93a6b82ce99d8126acc3"
+    },
+    {
+      "file": "LICENSES/albums/ambient-work-for-movies-and-games-vol-2.html",
+      "sha256": "6f02fcec84e3345db9a88ab46aca15fc581e2657011ef2b6f80701455882d83c"
+    },
+    {
+      "file": "LICENSES/albums/bleeps-and-bloops.html",
+      "sha256": "93d36f0427c404c290d83b5c8423824c77c6594c77bcefa11a41001a553b86f1"
+    },
+    {
+      "file": "LICENSES/albums/hyper-metal.html",
+      "sha256": "84955658043fb23e912484e6e9b3bebcd2ccecc2e8a27a1032f063bde9073e30"
+    },
+    {
+      "file": "LICENSES/albums/incredible-kart-game.html",
+      "sha256": "6fa520f84503e62060ca3631551dd1364af4be8aff7a46738cbf5dd9118aebde"
+    },
+    {
+      "file": "LICENSES/albums/instrumental-rb-beats-to-sing-or-rap-on.html",
+      "sha256": "d8edf37a15c97119aba4429a88f5da64b2fc3238711df446c38f2c81e1db1823"
+    },
+    {
+      "file": "LICENSES/albums/lofi-guitar-ambiences.html",
+      "sha256": "398f87e1815ef028ad228893645019e4fb671ae6b5edd9dd03861398e3524303"
+    },
+    {
+      "file": "LICENSES/albums/melodies-with-a-beat.html",
+      "sha256": "222c0225898d84e4ec30027f77921d4b69a5fb1333101e84581da1e3d685cfa0"
+    },
+    {
+      "file": "LICENSES/albums/positive-attitude.html",
+      "sha256": "f84132dca063fd62b202d749f7aaaa46196f80daf179f57ed08116c332501662"
+    },
+    {
+      "file": "LICENSES/albums/relaxing-ukulele.html",
+      "sha256": "a5d9452ca4cded4457cc5fc5b96b326e7519bd21e4c96964b9283b624ca89b08"
+    },
+    {
+      "file": "LICENSES/albums/robot-dance.html",
+      "sha256": "cf9ac3f78de46a08690d6afc276b876201d871c00215548421dfe5cf69173a3c"
+    },
+    {
+      "file": "LICENSES/albums/roller-disco-dance-dance.html",
+      "sha256": "2531b717c04ee439a872b0928e3967d27e987d8c07978c2481185313228673f2"
+    },
+    {
+      "file": "LICENSES/albums/the-adventure-goes-on-vol-1.html",
+      "sha256": "1455062356589e73c10f490793435dce8097721e05bdfc0508fdad5abff26e51"
+    },
+    {
+      "file": "LICENSES/albums/to-chill-and-stay-awake.html",
+      "sha256": "3f6e8362188adb78a5e0a4d9c103ee9e1527b061797b3da4e9516d15d7efb4b8"
+    },
+    {
+      "file": "LICENSES/Author-FAQ.html",
+      "sha256": "8393d15c25379b82a2f60e73d1931bbe8514bfc63bf7f2d77ec9e18860de3839"
+    },
+    {
+      "file": "LICENSES/CC0-1.0.txt",
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+    }
+  ]
+}

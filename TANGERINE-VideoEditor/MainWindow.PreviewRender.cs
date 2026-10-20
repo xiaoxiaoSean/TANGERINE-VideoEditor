@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using TANGERINE_VideoEditor.Editor;
@@ -17,6 +17,7 @@ public partial class MainWindow
     private string? _renderedPreviewClipId;
     private string? _renderedPreviewSourcePath;
     private long _renderedPreviewGeneration;
+    private long _renderedPreviewRevision = -1;
     private bool _renderedPreviewIsComposite;
     private bool _renderedPreviewFailed;
     private string? _renderedPreviewFailedKey;
@@ -26,27 +27,14 @@ public partial class MainWindow
 
     private void InvalidateCompositedPreview()
     {
-        _renderedPreviewKey = null;
-        _renderedPreviewCancellation?.Cancel();
-        _renderedPreviewCancellation = null;
-        _renderedPreviewGeneration = -1;
-        _renderedPreviewClipId = null;
-        _renderedPreviewSourcePath = null;
-        PreviewRenderedFrame.Source = null;
-        PreviewRenderedFrame.Visibility = Visibility.Collapsed;
-        _renderedPreviewIsComposite = false;
-        _renderedPreviewFailed = false;
+        ClearRenderedPreviewFrame();
         _renderedPreviewFailedKey = null;
-        _renderedPreviewPending = false;
-        _renderedPreviewInFlight = false;
-        _renderedPreviewRunningKey = null;
-        _lastMediaTransformKey = null;
         SeekPreview(_project.Sequence.PlayheadSeconds);
     }
 
     private void ScheduleRenderedPreviewFrame(TimelineClip? clip)
     {
-        if (_catalogPreviewActive || _catalogPreviewPending) return;
+        if (_catalogPreviewActive || _catalogPreviewPending || BuiltinMusicOwnsMonitor) return;
         double time = _project.Sequence.PlayheadSeconds;
         TimelineClip[] activeVisuals = _project.Tracks.Where(track => !track.IsHidden && track.Kind != TrackKind.Audio)
             .SelectMany(track => track.Clips)
@@ -134,13 +122,22 @@ public partial class MainWindow
             : $"{_projectGeneration}:{_projectRevision}:{clip!.Id}:{frameTime:0.000000}:{width}:{height}:{asset!.EffectivePreviewPath}";
         // Keep the native top source visible after a failed effect render.
         // A new playhead position, edit or canvas size gets a fresh attempt.
-        if (key == _renderedPreviewFailedKey) return;
+        if (key == _renderedPreviewFailedKey)
+        {
+            // Returning to a failed request must restore its native fallback,
+            // even if another clip has produced a rendered frame since then.
+            ClearRenderedPreviewFrame();
+            _renderedPreviewFailed = true;
+            return;
+        }
         // A frame from another source must never cover the current source
         // while its new effect frame is being decoded.
         string? clipId = composite ? "composite" : clip!.Id;
         string? sourcePath = composite ? "composite" : asset!.EffectivePreviewPath;
         bool sourceChanged = _renderedPreviewClipId != clipId ||
-            _renderedPreviewSourcePath != sourcePath;
+            _renderedPreviewSourcePath != sourcePath ||
+            _renderedPreviewGeneration != _projectGeneration ||
+            _renderedPreviewRevision != _projectRevision;
         if (sourceChanged)
         {
             PreviewRenderedFrame.Source = null;
@@ -154,6 +151,15 @@ public partial class MainWindow
         _renderedPreviewClipId = clipId;
         _renderedPreviewSourcePath = sourcePath;
         if (key == _renderedPreviewKey) return;
+        // Only ordinary playback may retain the previous frame while the
+        // decoder catches up. A seek or edit must not display old content as
+        // though it belonged to the newly requested position or revision.
+        if ((!_isPlaying || _scrubbingPlayhead) && _draggingMediaClip is null)
+        {
+            PreviewRenderedFrame.Source = null;
+            PreviewRenderedFrame.Visibility = Visibility.Collapsed;
+            _renderedPreviewIsComposite = false;
+        }
         if (_renderedPreviewInFlight && _isPlaying && !sourceChanged && !_scrubbingPlayhead)
         {
             // Let the current render finish. Canceling it on each playback
@@ -176,13 +182,14 @@ public partial class MainWindow
         _renderedPreviewFailed = false;
         _renderedPreviewKey = key;
         _renderedPreviewGeneration = _projectGeneration;
+        _renderedPreviewRevision = _projectRevision;
         _renderedPreviewCancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
         _renderedPreviewCancellation = cancellation;
         _renderedPreviewInFlight = true;
         _renderedPreviewPending = false;
         _renderedPreviewRunningKey = key;
-        _ = RenderPreviewFrameAsync(clip, asset, frameTime, width, height, key, composite, cancellation.Token);
+        _ = RenderPreviewFrameAsync(clip, asset, frameTime, width, height, key, composite, cancellation);
     }
 
     private void ClearRenderedPreviewFrame()
@@ -190,6 +197,7 @@ public partial class MainWindow
         _renderedPreviewCancellation?.Cancel();
         _renderedPreviewCancellation = null;
         _renderedPreviewGeneration = -1;
+        _renderedPreviewRevision = -1;
         _renderedPreviewKey = null;
         _renderedPreviewClipId = null;
         _renderedPreviewSourcePath = null;
@@ -204,18 +212,25 @@ public partial class MainWindow
     }
 
     private async Task RenderPreviewFrameAsync(TimelineClip? clip, MediaAsset? asset, double seconds,
-        int width, int height, string key, bool composite, CancellationToken cancellationToken)
+        int width, int height, string key, bool composite, CancellationTokenSource cancellation)
     {
+        CancellationToken cancellationToken = cancellation.Token;
+        ProjectDocument project = _project;
+        long generation = _projectGeneration;
+        long revision = _projectRevision;
+        bool OwnsRequest() => ReferenceEquals(_renderedPreviewCancellation, cancellation) &&
+            !cancellationToken.IsCancellationRequested && key == _renderedPreviewKey &&
+            ReferenceEquals(project, _project) && generation == _projectGeneration && revision == _projectRevision &&
+            !_catalogPreviewActive && !_catalogPreviewPending && !_cachedPreviewActive && !BuiltinMusicOwnsMonitor;
         try
         {
             BitmapSource bitmap = composite
-                ? await CompositeFrameRenderer.RenderFrameAsync(_project, seconds, width, height, cancellationToken,
+                ? await CompositeFrameRenderer.RenderFrameAsync(project, seconds, width, height, cancellationToken,
                     previewGpuMode: _previewGpuMode)
                 : await ClipFrameRenderer.RenderClipFrameAsync(clip!, asset!,
-                    _project.Sequence, seconds, width, height, cancellationToken,
+                    project.Sequence, seconds, width, height, cancellationToken,
                     previewGpuMode: _previewGpuMode);
-            if (_catalogPreviewActive || _catalogPreviewPending || cancellationToken.IsCancellationRequested || key != _renderedPreviewKey ||
-                _renderedPreviewGeneration != _projectGeneration ||
+            if (!OwnsRequest() ||
                 !composite && _activePreviewVisualClip?.Id != clip?.Id) return;
             PreviewRenderedFrame.Source = bitmap;
             PreviewRenderedFrame.Visibility = Visibility.Visible;
@@ -231,21 +246,25 @@ public partial class MainWindow
         catch (OperationCanceledException) { }
         catch (ClipFrameException exception)
         {
-            if (key != _renderedPreviewKey) return;
-            StatusText.Text = $"效果预览失败 · {exception.StageCode}";
+            if (!OwnsRequest()) return;
+            StatusText.Text = $"效果预览失败 · {Tools.StageCodes.Resolve(exception, "PRVEW0003")}";
             FallBackFromRenderFailure(key);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             InvalidOperationException or ArgumentException)
         {
-            if (key != _renderedPreviewKey) return;
-            StatusText.Text = $"效果预览失败 · PREVIEW-RENDER：{exception.Message}";
+            if (!OwnsRequest()) return;
+            StatusText.Text = $"效果预览失败 · PRVEW0003：{exception.Message}";
             FallBackFromRenderFailure(key);
         }
         finally
         {
-            if (key == _renderedPreviewRunningKey)
+            // Repeated keys are valid during resize and composite dragging.
+            // Only the task owning this cancellation source may release the
+            // active slot; an older task with the same key cannot release it.
+            if (ReferenceEquals(_renderedPreviewCancellation, cancellation))
             {
+                _renderedPreviewCancellation = null;
                 _renderedPreviewInFlight = false;
                 _renderedPreviewRunningKey = null;
                 if (_renderedPreviewPending && key == _renderedPreviewKey)
@@ -258,6 +277,7 @@ public partial class MainWindow
                     ScheduleRenderedPreviewFrame(_activePreviewVisualClip);
                 }
             }
+            cancellation.Dispose();
         }
     }
 

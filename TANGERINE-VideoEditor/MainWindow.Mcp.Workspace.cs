@@ -155,7 +155,7 @@ public partial class MainWindow
             !double.IsFinite(layout.LibraryRatio) || layout.LibraryRatio is < .15 or > .85 ||
             !double.IsFinite(layout.TimelineZoom) || layout.TimelineZoom < TimelineZoomSlider.Minimum || layout.TimelineZoom > TimelineZoomSlider.Maximum ||
             !double.IsFinite(layout.PreviewViewZoom) || layout.PreviewViewZoom is < .1 or > 4 || layout.MediaViewIndex is < 0 or > 2 ||
-            layout.PreviewQualityIndex is < 0 or > 2 || layout.CategoryIndex < 0 || layout.CategoryIndex >= CategoryList.Items.Count ||
+            layout.PreviewQualityIndex is < 0 or > 2 || layout.CategoryIndex < 0 || layout.CategoryIndex >= _categories.Length ||
             !McpGpuModes.Contains(layout.PreviewGpuMode, StringComparer.Ordinal))
             throw new StageException("MCPWS0001", "工作区比例、缩放、预览模式或分类超出范围。");
         var gestures = new HashSet<(Key, ModifierKeys)>();

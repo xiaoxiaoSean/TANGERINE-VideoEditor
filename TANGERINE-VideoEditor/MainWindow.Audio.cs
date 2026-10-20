@@ -275,9 +275,8 @@ public partial class MainWindow
 
     private void ReportAudioError(AudioOperationException exception)
     {
-        StatusText.Text = $"音频操作失败 · {exception.StageCode}";
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "音频操作失败",
-            MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"音频操作失败 · {Tools.StageCodes.Resolve(exception, "AUDIO0900")}";
+        Tools.ErrorDialog.Show(this, "AUDIO0900", exception);
     }
 
     private async Task SyncSelectedAudioAsync()
@@ -499,6 +498,8 @@ public partial class MainWindow
         cancel.Click += (_, _) => dialog.DialogResult = false;
         estimate.Click += async (_, _) =>
         {
+            if (!dialog.IsVisible || !_project.Tracks.Contains(track) || !track.Clips.Contains(clip) ||
+                !ReferenceEquals(_selectedClip, clip)) return;
             estimate.IsEnabled = false;
             StatusText.Text = "正在分析本地音乐节拍…";
             ProjectDocument sourceProject = _project;
@@ -508,7 +509,8 @@ public partial class MainWindow
                 double result = await AudioWaveformAnalysis.EstimateTempoAsync(asset.EffectiveExportPath,
                     clip.SourceInSeconds, asset.DurationSeconds.Value - clip.SourceInSeconds, sourceStreamIndex: clip.SourceAudioStreamIndex);
                 if (!ReferenceEquals(sourceProject, _project) ||
-                    sourceRevision != _projectRevision || !track.Clips.Contains(clip)) return;
+                    sourceRevision != _projectRevision || !track.Clips.Contains(clip) ||
+                    !dialog.IsVisible || !ReferenceEquals(_selectedClip, clip)) return;
                 bpm.Text = result.ToString("0", CultureInfo.CurrentCulture);
                 StatusText.Text = $"估计节拍：{result:0} BPM，请试听并按需修正";
             }
@@ -564,7 +566,7 @@ public partial class MainWindow
             SaveUndoState();
             track.Clips.Remove(clip);
             track.Clips.AddRange(pieces);
-            _selectedClip = pieces[0]; _selectedClips.Clear(); _selectedClips.Add(pieces[0]);
+            SelectClip(pieces[0]);
             MarkProjectDirty(); RefreshTimeline(); SeekPreview(_project.Sequence.PlayheadSeconds);
             StatusText.Text = $"已把音乐重排为 {pieces.Count} 段，时长 {targetDuration:0.##} 秒";
             dialog.DialogResult = true;
@@ -742,8 +744,8 @@ public partial class MainWindow
             _project.Media.Add(asset);
             var clip = new TimelineClip { Name = asset.Name, Kind = ClipKind.Audio,
                 MediaAssetId = asset.Id, StartSeconds = startSeconds, DurationSeconds = asset.DurationSeconds.Value };
-            track.Clips.Add(clip); _selectedTrack = track; _selectedClip = clip;
-            _selectedClips.Clear(); _selectedClips.Add(clip);
+            track.Clips.Add(clip);
+            SelectClip(clip);
             MarkProjectDirty(); RefreshLibrary(); RefreshTimeline(); SeekPreview(startSeconds);
             StatusText.Text = $"已加入画外音：{asset.Name}";
         }

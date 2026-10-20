@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -223,7 +223,7 @@ public partial class MainWindow
         try { graphic = GraphicShape.FromClip(clip); }
         catch (GraphicShapeException exception)
         {
-            StatusText.Text = $"图形读取失败 · {exception.StageCode}";
+            StatusText.Text = $"图形读取失败 · {Tools.StageCodes.Resolve(exception, "GRAPH0900")}";
             graphic = null;
         }
         var shapeKind = AddCombo(form, ref row, "图形形状", ["无", "矩形", "椭圆"], graphic?.Kind switch
@@ -253,7 +253,7 @@ public partial class MainWindow
         {
             if (!ReferenceEquals(dialogProject, _project) || dialogGeneration != _projectGeneration)
             {
-                StatusText.Text = "文字编辑已中止：项目已经切换 · TEXT-VALIDATE";
+                StatusText.Text = "文字编辑已中止：项目已经切换 · TITLE0001";
                 dialog.DialogResult = false;
                 return;
             }
@@ -294,7 +294,7 @@ public partial class MainWindow
                 try { newShape.Validate(); }
                 catch (GraphicShapeException exception)
                 {
-                    StatusText.Text = $"图形设置无效 · {exception.StageCode}";
+                    StatusText.Text = $"图形设置无效 · {Tools.StageCodes.Resolve(exception, "GRAPH0900")}";
                     return;
                 }
             }
@@ -316,7 +316,7 @@ public partial class MainWindow
                 // dialog owns the single undo step when the draft is added.
                 if (currentTrack is not null)
                 {
-                    StatusText.Text = "文字草稿状态已变化，请重新打开样式 · TEXT-VALIDATE";
+                    StatusText.Text = "文字草稿状态已变化，请重新打开样式 · TITLE0001";
                     return;
                 }
             }
@@ -456,7 +456,7 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException)
         {
-            System.Diagnostics.Debug.WriteLine($"TEXT-FONT-LIST: {exception}");
+            System.Diagnostics.Debug.WriteLine($"TITLE0002: {exception}");
         }
     }
 

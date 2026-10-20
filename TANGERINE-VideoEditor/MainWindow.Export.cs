@@ -51,47 +51,14 @@ public partial class MainWindow
 
         string tempDirectory = Path.Combine(Path.GetTempPath(), $"tangerine-titles-{Guid.NewGuid():N}");
         using var cancelSource = new CancellationTokenSource();
-        var progressWindow = new Window
-        {
-            Title = "正在导出视频",
-            Owner = this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            SizeToContent = SizeToContent.WidthAndHeight,
-            ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#191B20"),
-            Foreground = Brushes.White
-        };
-        var panel = new StackPanel { Margin = new Thickness(18) };
-        var message = new TextBlock { Text = "准备渲染…", Margin = new Thickness(0, 0, 0, 12) };
-        var bar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, IsIndeterminate = true };
-        var cancelButton = new Button
-        {
-            Content = "取消导出",
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Padding = new Thickness(16, 6, 16, 6),
-            Margin = new Thickness(0, 12, 0, 0)
-        };
-        cancelButton.Click += (_, _) => { cancelButton.IsEnabled = false; message.Text = "正在取消…"; cancelSource.Cancel(); };
-        bool exportFinished = false;
-        progressWindow.Closing += (_, args) =>
-        {
-            if (exportFinished) return;
-            args.Cancel = true;
-            cancelButton.IsEnabled = false;
-            message.Text = "正在取消…";
-            cancelSource.Cancel();
-        };
-        panel.Children.Add(message);
-        panel.Children.Add(bar);
-        panel.Children.Add(cancelButton);
-        progressWindow.Content = panel;
+        ExportProgressPresenter? progressWindow = null;
 
         _exportInProgress = true;
         ExportMenuItem.IsEnabled = false;
         ExportButton.IsEnabled = false;
-        progressWindow.Show();
         try
         {
+            progressWindow = new ExportProgressPresenter(this, job.OutputPath, cancel: cancelSource.Cancel);
             ProjectDocument source = _project;
             long sourceRevision = _projectRevision;
             long sourceGeneration = _projectGeneration;
@@ -101,8 +68,7 @@ public partial class MainWindow
                 throw new ExportException(ExportStageCode.Prepare,
                     "准备导出期间项目已修改，请重新导出以确保画面一致。");
             cancelSource.Token.ThrowIfCancellationRequested();
-            message.Text = $"准备序列：{job.SequenceName}";
-            bar.IsIndeterminate = true;
+            progressWindow.Prepare($"准备序列：{job.SequenceName}");
             ProjectDocument snapshot;
             try
             {
@@ -115,56 +81,38 @@ public partial class MainWindow
                     $"无法展开序列“{job.SequenceName}”：{exception.Message}", exception);
             }
             // WPF title rasterization runs on a dedicated STA worker.
+            progressWindow.Prepare("正在准备文字与图形…");
             var titlePaths = await RenderTitlesAsync(snapshot, tempDirectory, cancelSource.Token);
-            bar.IsIndeterminate = false;
-            message.Text = "正在编码：0%";
+            progressWindow.Encode(0);
             var progress = new Progress<double>(ratio =>
             {
+                if (!progressWindow.IsOpen || cancelSource.IsCancellationRequested) return;
                 int percent = (int)Math.Round(ratio * 100);
-                bar.Value = percent;
-                message.Text = $"正在编码：{percent}%";
+                progressWindow.Encode(ratio);
                 StatusText.Text = $"正在导出：{percent}%";
             });
             await Task.Run(() => TimelineExporter.ExportMp4Async(
                 snapshot, job.OutputPath, titlePaths, progress, cancelSource.Token, job.Settings),
                 cancelSource.Token);
+            progressWindow.Complete();
             StatusText.Text = $"导出完成：{Path.GetFileName(job.OutputPath)}";
             MessageBox.Show(this, $"视频已导出：{job.OutputPath}", "导出完成",
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (OperationCanceledException)
         {
+            progressWindow?.Complete();
             StatusText.Text = "导出已取消";
-        }
-        catch (ExportException exception)
-        {
-            StatusText.Text = $"导出失败 · {exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        catch (AudioOperationException exception)
-        {
-            StatusText.Text = $"导出失败 · AUDIO-{exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：AUDIO-{exception.StageCode}", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        catch (GraphicShapeException exception)
-        {
-            StatusText.Text = $"导出失败 · GRAPHIC-{exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：GRAPHIC-{exception.StageCode}", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            StatusText.Text = "导出失败 · Prepare";
-            MessageBox.Show(this, $"准备导出时失败：{exception.Message}\n阶段代码：Prepare", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         catch (Exception exception)
         {
-            StatusText.Text = "导出失败 · Prepare";
-            MessageBox.Show(this, $"视频导出发生错误：{exception.Message}\n阶段代码：Prepare", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            progressWindow?.Complete();
+            StatusText.Text = $"导出失败 · {Tools.StageCodes.Resolve(exception, "EXPRT0900")}";
+            Tools.ErrorDialog.Show(this, "EXPRT0900", exception);
         }
         finally
         {
-            exportFinished = true;
-            progressWindow.Close();
+            progressWindow?.Complete();
             _exportInProgress = false;
             ExportMenuItem.IsEnabled = true;
             ExportButton.IsEnabled = true;

@@ -67,12 +67,9 @@ public partial class MainWindow
             int offset = selected - _undoStates.Count;
             if (offset == 0) return;
             if (_historyOperationInProgress || _projectIoInProgress || _exportInProgress ||
-                _mediaImportGate.CurrentCount == 0 ||
-                _movingClip || _trimmingStart || _trimmingEnd || _scrubbingPlayhead ||
-                _rubberBandDrag is not null || _bezierHandleDrag is not null ||
-                _draggingTitleClip is not null)
+                _mediaImportGate.CurrentCount == 0 || HasActiveEditorGesture)
             {
-                StatusText.Text = "当前操作尚未完成 · HIST-NAVIGATE-BUSY";
+                StatusText.Text = "当前操作尚未完成 · HISTY0002";
                 return;
             }
             jump.IsEnabled = false;

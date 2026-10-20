@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -95,7 +95,8 @@ public partial class MainWindow
             {
                 string header = item.Header?.ToString() ?? string.Empty;
                 item.IsEnabled = header == "添加到当前序列"
-                    ? AssetList.SelectedItem is LibraryItem selected && selected.Category <= 1
+                    ? AssetList.SelectedItem is LibraryItem selected &&
+                        (selected.Category <= 1 || selected.Source is BuiltinMusicTrack)
                     : hasMedia;
             }
         };
@@ -170,10 +171,10 @@ public partial class MainWindow
         // make, so ask for real in/out points instead.
         double? knownEnd = asset.SourceOutSeconds ?? asset.DurationSeconds;
         if (knownEnd is null)
-        { StatusText.Text = "该媒体没有出点或时长，请先在源监视器设置入点和出点 · MED-SUBCLIP-RANGE"; return; }
+        { StatusText.Text = "该媒体没有出点或时长，请先在源监视器设置入点和出点 · PMEDA0061"; return; }
         double sourceEnd = knownEnd.Value;
         if (!double.IsFinite(sourceEnd) || sourceEnd <= asset.SourceInSeconds)
-        { StatusText.Text = "源素材入出点无效，无法创建子片段 · MED-SUBCLIP-RANGE"; return; }
+        { StatusText.Text = "源素材入出点无效，无法创建子片段 · PMEDA0061"; return; }
         string? name = PromptText("创建子片段", "名称", $"{asset.Name} - 子片段");
         if (string.IsNullOrWhiteSpace(name)) return;
         var subclip = SubclipService.CreateSubclip(asset, asset.SourceInSeconds, sourceEnd, name.Trim());
@@ -204,12 +205,12 @@ public partial class MainWindow
         clip.DurationSeconds = Math.Max(1 / Math.Max(1, _project.Sequence.FramesPerSecond), clip.DurationSeconds);
         // Honor the targeted track and skip locked ones, like paste and insert.
         TimelineTrack? track = ResolveCommandTarget(clip);
-        if (track is null) { StatusText.Text = "没有可用的未锁定兼容轨道 · MED-SUBCLIP-TRACK"; return; }
+        if (track is null) { StatusText.Text = "没有可用的未锁定兼容轨道 · PMEDA0060"; return; }
         double requested = clip.StartSeconds;
         clip.StartSeconds = FirstFreeStart(track, requested, clip.DurationSeconds);
         SaveUndoState();
         track.Clips.Add(clip);
-        _selectedClip = clip; _selectedTrack = track;
+        SelectClip(clip);
         MarkProjectDirty(); RefreshTimeline(); SeekPreview(clip.StartSeconds);
         StatusText.Text = clip.StartSeconds > requested + .0001
             ? $"播放头处已有片段，已将子片段“{sub.Name}”放到后面的空位"
@@ -371,7 +372,9 @@ public partial class MainWindow
     /// </summary>
     private void ScheduleMediaAvailabilityRefresh()
     {
-        if (_mediaAvailabilityRefreshRunning) return;
+        if (_experienceLifetime.IsCancellationRequested) return;
+        if (_mediaAvailabilityRefreshRunning)
+        { _mediaAvailabilityRefreshPending = true; return; }
         _mediaAvailabilityRefreshRunning = true;
         _ = RefreshMediaAvailabilityCoreAsync();
     }
@@ -405,6 +408,7 @@ public partial class MainWindow
                 if (!byId.TryGetValue(item.Id, out MediaAsset? asset) ||
                     asset.SourcePath != item.SourcePath || asset.ProxyPath != item.ProxyPath)
                 {
+                    _mediaAvailabilityRefreshPending = true;
                     continue;
                 }
                 _mediaAvailability[item.Id] = (item.SourcePath, item.SourceExists,
@@ -414,13 +418,17 @@ public partial class MainWindow
             foreach (string staleId in _mediaAvailability.Keys
                 .Where(id => !byId.ContainsKey(id)).ToArray())
                 _mediaAvailability.Remove(staleId);
+            if (byId.Keys.Except(availability.Select(item => item.Id)).Any())
+                _mediaAvailabilityRefreshPending = true;
             _mediaAvailabilityLastRefreshTicks = Environment.TickCount64;
             if (CategoryList.SelectedIndex == 0) RefreshLibrary();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Debug.WriteLine($"MED-AVAILABILITY: {exception}");
-            StatusText.Text = "媒体在线状态检查失败 · MED-AVAILABILITY";
+            Debug.WriteLine($"PMEDA0070: {exception}");
+            if (ReferenceEquals(project, _project) && generation == _projectGeneration &&
+                !_experienceLifetime.IsCancellationRequested)
+                StatusText.Text = "媒体在线状态检查失败 · PMEDA0070";
         }
         finally
         {

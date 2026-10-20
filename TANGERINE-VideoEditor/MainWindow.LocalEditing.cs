@@ -94,10 +94,8 @@ public partial class MainWindow
     /// </summary>
     private void SelectClipFromIndex(TimelineTrack track, TimelineClip clip)
     {
-        _selectedTrack = track;
-        _selectedClip = clip;
-        _selectedClips.Clear();
-        _selectedClips.Add(clip);
+        if (!_project.Tracks.Contains(track) || !track.Clips.Contains(clip)) return;
+        SelectClip(clip);
         _project.Sequence.PlayheadSeconds = clip.StartSeconds;
         RefreshTimeline();
         double x = HeaderSpace + clip.StartSeconds * PixelsPerSecond;
@@ -170,28 +168,33 @@ public partial class MainWindow
 
         ProjectDocument expectedProject = _project;
         long expectedRevision = _projectRevision;
+        long expectedGeneration = _projectGeneration;
+        bool IsCurrentExtraction() => ReferenceEquals(expectedProject, _project) &&
+            expectedRevision == _projectRevision && expectedGeneration == _projectGeneration &&
+            expectedProject.Tracks.Contains(track) && track.Clips.Contains(clip) &&
+            !_experienceLifetime.IsCancellationRequested;
         StatusText.Text = "正在提取媒体片段…";
         try
         {
             await ExtractMediaFileAsync(source, output, clip.Kind, inPoint, duration);
-            if (!ReferenceEquals(expectedProject, _project) || expectedRevision != _projectRevision)
-            { StatusText.Text = "媒体已提取，但项目在操作期间发生变化，未删除时间线片段"; return; }
+            if (!IsCurrentExtraction()) return;
             StatusText.Text = $"已提取到：{output}";
             if (MessageBox.Show(this, "媒体提取完成。是否删除时间线中的原片段？", "提取完成",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             bool keepGap = MessageBox.Show(this, "删除后是否保留时间线空隙？\n选择“是”保留空隙，选择“否”关闭空隙。", "删除原片段",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+            if (!IsCurrentExtraction()) return;
             SelectClip(clip);
             if (keepGap) RemoveSelectedClipKeepingGap(); else RemoveSelectedClipAndCloseGap("已提取并删除原片段，时间线空隙已关闭");
         }
-        catch (OperationCanceledException) { StatusText.Text = "提取已取消"; }
+        catch (OperationCanceledException) { if (IsCurrentExtraction()) StatusText.Text = "提取已取消"; }
         // This method is async void, so an exception that escapes it is raised
         // on the UI thread with nothing to catch it and ends the application.
         // Process.Start throws Win32Exception when ffmpeg.exe is missing, which
         // is why that type is listed with the I/O ones.
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or InvalidOperationException or System.ComponentModel.Win32Exception)
-        { StatusText.Text = $"提取失败：{exception.Message} · EDIT-EXTRACT"; }
+        { if (IsCurrentExtraction()) StatusText.Text = $"提取失败：{exception.Message} · TMLNE0130"; }
     }
 
     private static async Task ExtractMediaFileAsync(string source, string output, ClipKind kind,
@@ -228,7 +231,7 @@ public partial class MainWindow
     {
         if (_selectedClip?.MediaAssetId is not string assetId) { StatusText.Text = "请选择带源媒体的片段"; return; }
         MediaAsset? asset = _project.Media.FirstOrDefault(item => item.Id == assetId);
-        if (asset is null) { StatusText.Text = "找不到该片段的源媒体，请先重新链接 · EDIT-MATCH-SOURCE"; return; }
+        if (asset is null) { StatusText.Text = "找不到该片段的源媒体，请先重新链接 · TMLNE0131"; return; }
         double playhead = _project.Sequence.PlayheadSeconds;
         // SourceTime clamps a playhead outside the clip to its nearest frame,
         // and already accounts for the in-point, speed, remap knots and
@@ -260,7 +263,7 @@ public partial class MainWindow
         if (thresholdText is null) { StatusText.Text = "已取消场景检测"; return; }
         if (!double.TryParse(thresholdText, NumberStyles.Float, CultureInfo.CurrentCulture, out double threshold) ||
             !double.IsFinite(threshold) || threshold < .01 || threshold > 1)
-        { StatusText.Text = "敏感度必须是 0.01 到 1 之间的数字 · EDIT-SCENE-INPUT"; return; }
+        { StatusText.Text = "敏感度必须是 0.01 到 1 之间的数字 · TMLNE0132"; return; }
 
         // Capture the target now. The user can select another clip while the
         // analysis runs, and the cuts must land on the clip that was analyzed.
@@ -269,6 +272,10 @@ public partial class MainWindow
         ProjectDocument expectedProject = _project;
         long expectedGeneration = _projectGeneration;
         long expectedRevision = _projectRevision;
+        bool IsCurrentSceneAnalysis() => ReferenceEquals(expectedProject, _project) &&
+            expectedGeneration == _projectGeneration && expectedRevision == _projectRevision &&
+            expectedProject.Tracks.Contains(targetTrack) && targetTrack.Clips.Contains(target) &&
+            !_experienceLifetime.IsCancellationRequested;
         StatusText.Text = "正在本地分析场景切换…";
         try
         {
@@ -282,9 +289,7 @@ public partial class MainWindow
             double scanSpan = Math.Abs(usedB - usedA) + 1.0;
             var result = await SceneCutDetector.DetectSceneCutsAsync(asset.SourcePath, threshold,
                 startSeconds: scanFrom, durationSeconds: scanSpan);
-            if (!ReferenceEquals(expectedProject, _project) || expectedGeneration != _projectGeneration ||
-                expectedRevision != _projectRevision || !targetTrack.Clips.Contains(target))
-            { StatusText.Text = "场景检测已作废：分析期间项目已被修改"; return; }
+            if (!IsCurrentSceneAnalysis()) return;
 
             // Cut points are SOURCE times, but a clip only plays part of its
             // source, possibly sped up, remapped or reversed. Map each cut onto
@@ -331,7 +336,7 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException
             or UnauthorizedAccessException or OperationCanceledException)
-        { StatusText.Text = $"场景检测失败：{exception.Message} · EDIT-SCENE-DETECT"; }
+        { if (IsCurrentSceneAnalysis()) StatusText.Text = $"场景检测失败：{exception.Message} · TMLNE0133"; }
     }
 
     private void ToggleGlobalMute()

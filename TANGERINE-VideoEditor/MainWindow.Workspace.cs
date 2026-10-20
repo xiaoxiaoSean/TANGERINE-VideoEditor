@@ -18,6 +18,7 @@ public partial class MainWindow
 {
     private readonly Dictionary<string, InputBinding> _customShortcutBindings = [];
     private readonly SemaphoreSlim _workspaceSettingsGate = new(1, 1);
+    private long _workspaceRestoreRequest;
     private bool _autoSaveEnabled = true;
     private string _previewGpuMode = "自动（GPU 优先）";
     private sealed record WorkspaceLayout(double UpperRatio, double LibraryRatio, int CategoryIndex,
@@ -118,12 +119,17 @@ public partial class MainWindow
             string? name = command.SelectedItem as string;
             if (name is null || !TryParseShortcut(shortcut.Text, out Key key, out ModifierKeys modifiers))
             {
-                MessageBox.Show(dialog, "请输入有效快捷键，例如 Ctrl+Alt+K。\n阶段代码：WORKSPACE-SHORTCUT",
-                    "快捷键无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Tools.ErrorDialog.Show(dialog, "WKSPC0003",
+                    new Tools.StageException("WKSPC0003", "请输入有效快捷键，例如 Ctrl+Alt+K。"));
                 return;
             }
             try { ApplyCustomShortcut(name, key, modifiers); }
-            catch (TANGERINE_VideoEditor.Tools.StageException exception) { StatusText.Text = $"{exception.Message} · {exception.StageCode}"; return; }
+            catch (Tools.StageException exception)
+            {
+                StatusText.Text = $"{exception.Message} · {Tools.StageCodes.Resolve(exception, "WKSPC0003")}";
+                Tools.ErrorDialog.Show(dialog, "WKSPC0003", exception);
+                return;
+            }
             StatusText.Text = $"已设置“{name}”快捷键：{shortcut.Text.Trim()}";
             await SaveCurrentWorkspaceAsync();
         };
@@ -201,7 +207,7 @@ public partial class MainWindow
         TimelineWorkspaceRow.Height = new GridLength((1 - upperRatio) * 100, GridUnitType.Star);
         LibraryWorkspaceColumn.Width = new GridLength(libraryRatio * 100, GridUnitType.Star);
         PreviewWorkspaceColumn.Width = new GridLength((1 - libraryRatio) * 100, GridUnitType.Star);
-        CategoryList.SelectedIndex = Math.Clamp(categoryIndex, 0, Math.Max(0, CategoryList.Items.Count - 1));
+        CategoryList.SelectedIndex = Math.Clamp(categoryIndex, 0, Math.Max(0, _categories.Length - 1));
         StatusText.Text = "已切换工作区布局";
     }
 
@@ -230,6 +236,7 @@ public partial class MainWindow
         // Capture WPF controls on the dispatcher, then move filesystem work
         // to a worker so a slow profile directory cannot freeze editing.
         WorkspaceLayout layout = CaptureWorkspaceLayout();
+        _workspaceRestoreRequest++;
         await _workspaceSettingsGate.WaitAsync();
         try
         {
@@ -243,23 +250,30 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            StatusText.Text = "保存工作区失败 · WORKSPACE-SAVE";
-            MessageBox.Show(this, $"无法保存工作区布局：{exception.Message}\n阶段代码：WORKSPACE-SAVE",
-                "工作区错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = "保存工作区失败 · WKSPC0001";
+            Tools.ErrorDialog.Show(this, "WKSPC0001", exception);
         }
         finally { _workspaceSettingsGate.Release(); }
     }
 
     private async Task RestoreSavedWorkspaceAsync(bool showMissing = true)
     {
+        long request = ++_workspaceRestoreRequest;
+        string requestedView = CaptureWorkspaceViewState();
+        bool applying = false;
+        bool OwnsRestore() => request == _workspaceRestoreRequest &&
+            !_experienceLifetime.IsCancellationRequested &&
+            (applying || requestedView == CaptureWorkspaceViewState());
         await _workspaceSettingsGate.WaitAsync();
         try
         {
+            if (!OwnsRestore()) return;
             WorkspaceLayout? layout = await Task.Run(() =>
             {
                 if (!File.Exists(WorkspaceSettingsPath)) return null;
                 return JsonSerializer.Deserialize<WorkspaceLayout>(File.ReadAllText(WorkspaceSettingsPath));
             });
+            if (!OwnsRestore()) return;
             if (layout is null)
             {
                 if (showMissing) StatusText.Text = "尚未保存工作区布局";
@@ -268,6 +282,7 @@ public partial class MainWindow
             if (!double.IsFinite(layout.UpperRatio) || !double.IsFinite(layout.LibraryRatio) ||
                 !double.IsFinite(layout.TimelineZoom))
                 throw new JsonException("工作区比例或时间线缩放无效。");
+            applying = true;
             ApplyWorkspacePreset(Math.Clamp(layout.UpperRatio, .15, .85),
                 Math.Clamp(layout.LibraryRatio, .15, .85), layout.CategoryIndex);
             PreviewQualityBox.SelectedIndex = Math.Clamp(layout.PreviewQualityIndex, 0, 2);
@@ -290,12 +305,29 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            StatusText.Text = "恢复工作区失败 · WORKSPACE-RESTORE";
-            if (showMissing) MessageBox.Show(this,
-                $"无法读取工作区布局：{exception.Message}\n阶段代码：WORKSPACE-RESTORE",
-                "工作区错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!OwnsRestore()) return;
+            StatusText.Text = "恢复工作区失败 · WKSPC0002";
+            if (showMissing) Tools.ErrorDialog.Show(this, "WKSPC0002", exception);
         }
         finally { _workspaceSettingsGate.Release(); }
+    }
+
+    private string CaptureWorkspaceViewState()
+    {
+        // Requested grid lengths remain stable while WPF completes layout;
+        // ActualWidth/Height can change without any user action. Include the
+        // requested geometry and every restorable setting so a delayed read
+        // cannot overwrite a more recent view, preference, or shortcut edit.
+        WorkspaceLayout settings = CaptureWorkspaceLayout() with { UpperRatio = 0, LibraryRatio = 0 };
+        return JsonSerializer.Serialize(new
+        {
+            UpperHeight = UpperWorkspaceRow.Height,
+            TimelineHeight = TimelineWorkspaceRow.Height,
+            LibraryWidth = LibraryWorkspaceColumn.Width,
+            PreviewWidth = PreviewWorkspaceColumn.Width,
+            Category = CategoryList.SelectedIndex,
+            Settings = settings
+        });
     }
 
     private void FreezeSelectedFrame()
@@ -304,13 +336,13 @@ public partial class MainWindow
         { StatusText.Text = "请在未锁定的轨道上选择视频片段"; return; }
         MediaAsset? asset = _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
         if (asset is null || string.IsNullOrWhiteSpace(asset.SourcePath))
-        { StatusText.Text = "源媒体离线 · EDIT-FREEZE-SOURCE"; return; }
+        { StatusText.Text = "源媒体离线 · STLFR0001"; return; }
         _ = FreezeFrameAsync(clip, asset);
     }
 
     private async Task FreezeFrameAsync(TimelineClip clip, MediaAsset asset)
     {
-        if (_projectIoInProgress || _exportInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _historyOperationInProgress || HasActiveEditorGesture) return;
         var picker = new SaveFileDialog { Title = "保存冻结帧", Filter = "PNG 图片|*.png",
             DefaultExt = ".png", AddExtension = true, FileName = Path.GetFileNameWithoutExtension(asset.Name) + "_静帧.png" };
         if (picker.ShowDialog(this) != true) return;
@@ -356,24 +388,22 @@ public partial class MainWindow
         }
         catch (StillFrameException exception)
         {
-            StatusText.Text = $"冻结帧失败 · {exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "冻结帧失败",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = $"冻结帧失败 · {Tools.StageCodes.Resolve(exception, "STLFR0900")}";
+            Tools.ErrorDialog.Show(this, "STLFR0900", exception);
         }
         catch (ProjectFileException exception) { ShowProjectError(exception); }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or
             PathTooLongException or IOException or UnauthorizedAccessException)
         {
-            StatusText.Text = "冻结帧路径无效 · EDIT-FREEZE-PATH";
-            MessageBox.Show(this, $"无法使用冻结帧路径：{exception.Message}\n阶段代码：EDIT-FREEZE-PATH",
-                "冻结帧失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = "冻结帧路径无效 · STLFR0901";
+            Tools.ErrorDialog.Show(this, "STLFR0901", exception);
         }
         finally { _exportInProgress = false; }
     }
 
     private async Task ExportCurrentFrameAsync()
     {
-        if (_projectIoInProgress || _exportInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _historyOperationInProgress || HasActiveEditorGesture) return;
         var picker = new SaveFileDialog { Title = "导出当前帧", Filter = "PNG 图片|*.png",
             DefaultExt = ".png", AddExtension = true, FileName = _project.Name + "_当前帧.png" };
         if (picker.ShowDialog(this) != true) return;
@@ -399,16 +429,14 @@ public partial class MainWindow
         }
         catch (StillFrameException exception)
         {
-            StatusText.Text = $"导出帧失败 · {exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "导出帧失败",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = $"导出帧失败 · {Tools.StageCodes.Resolve(exception, "STLFR0902")}";
+            Tools.ErrorDialog.Show(this, "STLFR0902", exception);
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or
             ArgumentException or IOException or UnauthorizedAccessException)
         {
-            StatusText.Text = "导出帧失败 · Prepare";
-            MessageBox.Show(this, $"准备导出帧时失败：{exception.Message}\n阶段代码：Prepare",
-                "导出帧失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = "导出帧失败 · STLFR0902";
+            Tools.ErrorDialog.Show(this, "STLFR0902", exception);
         }
         finally { _exportInProgress = false; }
     }
@@ -416,32 +444,35 @@ public partial class MainWindow
     private async Task AutoSaveProjectCopyAsync()
     {
         if (!_autoSaveEnabled || _autoSaveInProgress || _exportInProgress ||
-            _projectIoInProgress || !_isProjectDirty) return;
+            _projectIoInProgress || _historyOperationInProgress || HasActiveEditorGesture || !_isProjectDirty) return;
         _autoSaveInProgress = true;
+        ProjectDocument source = _project;
+        long revision = _projectRevision;
+        long generation = _projectGeneration;
+        bool CanReportAutoSave() => ReferenceEquals(source, _project) && revision == _projectRevision &&
+            generation == _projectGeneration && !_experienceLifetime.IsCancellationRequested &&
+            _autoSaveEnabled && !_catalogPreviewActive && !_catalogPreviewPending;
         try
         {
             string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "TANGERINE-VideoEditor", "自动保存", _project.Id);
             string path = Path.Combine(root, $"{DateTime.Now:yyyyMMdd_HHmmss}.tvep");
-            ProjectDocument source = _project;
-            long revision = _projectRevision;
-            long generation = _projectGeneration;
             ProjectDocument snapshot = await Task.Run(() =>
                 JsonSerializer.Deserialize<ProjectDocument>(JsonSerializer.Serialize(source))!);
             if (!ReferenceEquals(source, _project) || revision != _projectRevision ||
-                generation != _projectGeneration) return;
+                generation != _projectGeneration || HasActiveEditorGesture) return;
             // SaveAsync embeds working media into the autosave archive and
             // rewrites paths in a private manifest copy.
             await Task.Run(() => Directory.CreateDirectory(root));
             if (!ReferenceEquals(source, _project) || revision != _projectRevision ||
-                generation != _projectGeneration) return;
+                generation != _projectGeneration || HasActiveEditorGesture) return;
             await ProjectFileService.SaveAsync(snapshot, path);
-            StatusText.Text = $"自动保存副本：{Path.GetFileName(path)}";
+            if (CanReportAutoSave()) StatusText.Text = $"自动保存副本：{Path.GetFileName(path)}";
         }
         catch (ProjectFileException exception)
-        { StatusText.Text = $"自动保存失败 · {exception.StageCode}"; }
+        { if (CanReportAutoSave()) StatusText.Text = $"自动保存失败 · {Tools.StageCodes.Resolve(exception, "WKSPC0004")}"; }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or JsonException)
-        { StatusText.Text = $"自动保存失败 · WORKSPACE-AUTOSAVE：{exception.Message}"; }
+        { if (CanReportAutoSave()) StatusText.Text = $"自动保存失败 · WKSPC0004：{exception.Message}"; }
         finally { _autoSaveInProgress = false; }
     }
 }

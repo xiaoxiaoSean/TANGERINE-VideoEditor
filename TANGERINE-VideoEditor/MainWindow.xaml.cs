@@ -46,11 +46,19 @@ public partial class MainWindow : Window
 
     private void RefreshEditorFromProject()
     {
+        // A full document refresh revokes monitor and drag ownership even when
+        // the next document happens to contain the same preset or asset IDs.
+        StopCatalogPreview(restoreTimeline: false);
+        FinishLibraryDrag();
+        ClearRenderedPreviewFrame();
+        StopCachedPreview();
         _selectedTransition = null;
         _selectedTransitionIncoming = null;
         _selectedTransitionPrior = null;
         _selectedTransitionTrack = null;
         _previewSourcePath = null;
+        _previewMediaOpenedPath = null;
+        _previewMediaFailedPath = null;
         _previewImageRequest++;
         _previewImageLoadingPath = null;
         _previewImageFailedPath = null;
@@ -58,6 +66,7 @@ public partial class MainWindow : Window
         _lastTitleRangeStart = double.NaN;
         _lastTitleRangeEnd = double.NaN;
         PreviewMediaElement.Stop();
+        PreviewMediaElement.Close();
         PreviewMediaElement.Source = null;
         PreviewImage.Source = null;
         RefreshLibrary();

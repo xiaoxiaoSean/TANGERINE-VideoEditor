@@ -75,7 +75,9 @@ public partial class MainWindow
             SelectionMode = SelectionMode.Extended };
         list.MouseDoubleClick += (_, _) =>
         {
-            if (list.SelectedItem is PaperEditRow row)
+            if (ReferenceEquals(sourceProject, _project) &&
+                list.SelectedItem is PaperEditRow row && _project.Tracks.Contains(row.Track) &&
+                row.Track.Clips.Contains(row.Clip))
                 SeekPreview(row.Clip.StartSeconds);
         };
         Grid.SetRow(list, 2); root.Children.Add(list);
@@ -223,11 +225,13 @@ public partial class MainWindow
                 ? clip.Kind == ClipKind.Video : clip.Kind == ClipKind.Audio);
             sourceTrack.Clips.AddRange(replacements);
         }
-        _selectedTrack = destination;
-        _contextTrack = destination;
-        _selectedClip = replacements.FirstOrDefault();
-        _selectedClips.Clear();
-        if (_selectedClip is not null) _selectedClips.Add(_selectedClip);
+        if (replacements.FirstOrDefault() is TimelineClip selectedClip) SelectClip(selectedClip);
+        else
+        {
+            ClearTimelineSelection();
+            _selectedTrack = destination;
+            _contextTrack = destination;
+        }
         MarkProjectDirty(); RefreshTimeline();
         SeekPreview(keepSelected ? roughCutStart : replacements.FirstOrDefault()?.StartSeconds ??
             selected.Min(row => row.Clip.StartSeconds));
@@ -238,8 +242,7 @@ public partial class MainWindow
 
     private void ReportPaperEditError(PaperEditException exception)
     {
-        StatusText.Text = $"文本剪辑失败 · {exception.StageCode}";
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}",
-            "文本剪辑失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"文本剪辑失败 · {Tools.StageCodes.Resolve(exception, "PEDIT0900")}";
+        Tools.ErrorDialog.Show(this, "PEDIT0900", exception);
     }
 }

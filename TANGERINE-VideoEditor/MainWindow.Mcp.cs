@@ -81,6 +81,8 @@ public partial class MainWindow
         string fingerprint = $"{_mcpControlOwnerSessionId}|{_projectRevision}|{_projectGeneration}|{_project.Sequence.PlayheadSeconds:R}|" +
             $"{string.Join(',', _selectedClips.Select(clip => clip.Id).Order())}|{_selectedTrack?.Id}|{SelectedMedia()?.Id}|{_isPlaying}|" +
             $"{_renderedPreviewInFlight}|{_renderedPreviewPending}|{_renderedPreviewGeneration}|{_renderedPreviewFailed}|" +
+            $"{McpPreviewMode}|{_builtinMusicTrack?.Id}|{_builtinMusicPlaying}|{_builtinMusicPlayer?.Position.TotalSeconds:R}|" +
+            $"{_builtinMusicArtworkRequest}|{_builtinMusicArtworkLoading}|{McpMusicArtworkVisible}|{_builtinMusicTrack?.ThumbnailPath}|" +
             $"{TimelineZoomSlider.Value}|{UpperWorkspaceRow.Height}|{LibraryWorkspaceColumn.Width}|{_autoSaveEnabled}|" +
             $"{string.Join(',', _customShortcutBindings.OrderBy(pair => pair.Key).Select(pair => pair.Key + ':' + (pair.Value is System.Windows.Input.KeyBinding key ? key.Key.ToString() + key.Modifiers : pair.Value.ToString())))}|" +
              $"{PreviewZoomSlider.Value}|{MediaViewBox.SelectedIndex}|{_project.Sequence.MagneticTimeline}|{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
@@ -149,8 +151,7 @@ public partial class MainWindow
         { return AutomationResponse.Fail(request.Id, "cancelled", "MCP 操作已取消。", "MCPRT0002", _mcpInfo.Revision); }
         catch (Exception exception)
         {
-            string stage = exception is JsonModelException model ? StageCodes.Of("MCPJS", (int)model.StageCode + 1)
-                : StageCodes.Resolve(exception, "MCPRT0005");
+            string stage = StageCodes.Resolve(exception, "MCPRT0005");
             string error = stage switch { "MCPRT0003" => "revision_conflict", "MCPCT0001" => "missing_session",
                 "MCPCT0002" => "control_required", "MCPCT0003" => "control_owned", "MCPCT0004" => "control_busy", _ => "operation_failed" };
             return AutomationResponse.Fail(request.Id, error,
@@ -170,18 +171,30 @@ public partial class MainWindow
         project = includeProject ? JsonModelTools.ToNode(_project) : null,
         selection = new { clipIds = _selectedClips.Select(clip => clip.Id).ToArray(), clipId = _selectedClip?.Id,
             trackId = _selectedTrack?.Id, assetId = SelectedMedia()?.Id },
-        preview = new { timeSeconds = _project.Sequence.PlayheadSeconds, playing = _isPlaying,
+        preview = new { mode = McpPreviewMode, timeSeconds = _project.Sequence.PlayheadSeconds, playing = _isPlaying,
             rendering = _renderedPreviewInFlight, pending = _renderedPreviewPending, failed = _renderedPreviewFailed,
-            generation = _renderedPreviewGeneration, gpuMode = _previewGpuMode },
+            generation = _renderedPreviewGeneration, gpuMode = _previewGpuMode,
+            music = new { musicId = _builtinMusicTrack?.Id, playing = _builtinMusicPlaying,
+                timeSeconds = _builtinMusicPlayer?.Position.TotalSeconds, durationSeconds = _builtinMusicTrack?.DurationSeconds,
+                artworkPath = _builtinMusicTrack?.ThumbnailPath, artworkLoading = _builtinMusicArtworkLoading,
+                artworkVisible = McpMusicArtworkVisible, artworkRequest = _builtinMusicArtworkRequest } },
         history = new { undo = _undoStates.Count, redo = _redoStates.Count },
         jobs = _mcpJobs.Values.OrderByDescending(job => job.CreatedUtc).Select(McpJobState).ToArray(),
             status = StatusText.Text
         };
     }
 
+    private string McpPreviewMode => BuiltinMusicOwnsMonitor ? "music" :
+        _catalogPreviewActive || _catalogPreviewPending ? "catalog" : "timeline";
+
+    private bool McpMusicArtworkVisible => BuiltinMusicOwnsMonitor &&
+        _builtinMusicArtwork.Visibility == Visibility.Visible && _builtinMusicArtwork.Source is not null;
+
     private object McpMutate(string label, Action edit, bool recordHistory = true)
     {
         McpEnsureIdle();
+        ProjectDocument originalProject = _project;
+        ProjectSequence originalSequence = _project.Sequence;
         string before = JsonSerializer.Serialize(_project);
         string? path = _projectPath;
         long generation = _projectGeneration;
@@ -195,6 +208,8 @@ public partial class MainWindow
         {
             edit();
             McpValidate(_project);
+            if (!ReferenceEquals(originalProject, _project) || !ReferenceEquals(originalSequence, _project.Sequence))
+                ResetMcpDocumentContext();
             MarkProjectDirty();
             RefreshMcpUi(label, _selectedClip?.Id);
             // History is changed only after both model validation and the
@@ -213,10 +228,13 @@ public partial class MainWindow
             ProjectFileService.TransferCachedMedia(_project, restored);
             _project = restored;
             _projectPath = path;
-            _projectGeneration = generation;
+            // Rollback creates fresh objects too. A generation belonging to
+            // the abandoned model must never become current again.
+            _projectGeneration = Math.Max(generation, _projectGeneration) + 1;
             _projectRevision = revision;
             _isProjectDirty = dirty;
             _projectCreated = created;
+            ResetMcpDocumentContext();
             _selectedClips.Clear();
             foreach (var clip in restored.Tracks.SelectMany(track => track.Clips).Where(clip => selection.Contains(clip.Id))) _selectedClips.Add(clip);
             _selectedTrack = restored.Tracks.FirstOrDefault(track => track.Id == trackId);
@@ -229,14 +247,25 @@ public partial class MainWindow
     private void RefreshMcpUi(string label, string? selectedId = null)
     {
         Action? refreshInspector = _selectedClip?.Id == selectedId ? _mcpInspectorRefresh : null;
-        StopCatalogPreview();
-        if (_isPlaying) TogglePlayback();
         string[] selectedIds = _selectedClips.Select(clip => clip.Id).ToArray();
+        string? selectedTrackId = _selectedTrack?.Id;
+        StopCatalogPreview();
+        _isPlaying = false;
+        _playbackTimer.Stop();
+        _playbackClock.Stop();
+        StopAudioPreview();
+        StopCachedPreview();
+        InvalidateCompositedPreview();
+        PlayPauseButton.Content = "▶";
+        // Rebind every surviving selection by stable ID. Keeping a keyframe,
+        // transition or gesture pointer from the previous model would let a
+        // later focus/mouse callback edit an object that is no longer live.
+        ClearTimelineSelection();
         _selectedClip = _project.Tracks.SelectMany(track => track.Clips).FirstOrDefault(clip => clip.Id == selectedId);
         _selectedClips.Clear();
         foreach (var clip in _project.Tracks.SelectMany(track => track.Clips).Where(clip => selectedIds.Contains(clip.Id))) _selectedClips.Add(clip);
         if (_selectedClip is not null) { _selectedClips.Add(_selectedClip); _selectedTrack = _project.Tracks.First(track => track.Clips.Contains(_selectedClip)); }
-        else if (_selectedTrack is not null) _selectedTrack = _project.Tracks.FirstOrDefault(track => track.Id == _selectedTrack.Id);
+        else _selectedTrack = _project.Tracks.FirstOrDefault(track => track.Id == selectedTrackId);
         _lastTitleLayoutKey = null;
         _lastMediaTransformKey = null;
         RefreshEditorFromProject();
@@ -249,12 +278,28 @@ public partial class MainWindow
         UpdateMcpInfo();
     }
 
+    private void ResetMcpDocumentContext()
+    {
+        StopCatalogPreview();
+        _sourceMonitorRequest++;
+        _sourceMonitor?.Close();
+        _mediaMetadataCancellation?.Cancel();
+        _mediaMetadataCancellation = null;
+        McpCancelVoiceover();
+        _pendingDropBatches.Clear();
+        _clipboardClip = null;
+        PasteMenuItem.IsEnabled = false;
+        TimelinePasteMenuItem.IsEnabled = false;
+        if (_selectedBinId is not null && !_project.Bins.Any(bin => bin.Id == _selectedBinId))
+            _selectedBinId = null;
+        if (_soloTrackId is not null && !_project.Tracks.Any(track => track.Id == _soloTrackId))
+        { _soloTrackId = null; _monitorStateRevision++; }
+    }
+
     private void McpEnsureIdle()
     {
         if (_projectIoInProgress || _historyOperationInProgress || _autoSaveInProgress || _exportInProgress || _imageSequenceImportInProgress ||
-            _mediaImportGate.CurrentCount == 0 || _scrubbingPlayhead || _movingClip ||
-            _trimmingStart || _trimmingEnd || _draggingTitleClip is not null || _draggingMediaClip is not null ||
-            _rubberBandDrag is not null || _bezierHandleDrag is not null)
+            _mediaImportGate.CurrentCount == 0 || HasActiveEditorGesture)
             throw new StageException("MCPRT0006", "界面正在执行编辑或项目读写，请稍后重试。");
     }
 
@@ -324,7 +369,12 @@ public partial class MainWindow
         }
     }
 
+    private long _mcpJobNotificationGeneration;
+
     private object McpStartJob(string name, Func<IProgress<double>, CancellationToken, Task<object?>> work)
+        => McpStartJob(name, (_, progress, token) => work(progress, token));
+
+    private object McpStartJob(string name, Func<McpJob, IProgress<double>, CancellationToken, Task<object?>> work)
     {
         // Bound completed history without discarding an active job's cancellation
         // source. Jobs return immediately so agents can keep editing or poll.
@@ -332,12 +382,16 @@ public partial class MainWindow
             .OrderByDescending(job => job.CreatedUtc).Skip(50))
             if (_mcpJobs.TryRemove(old.Id, out _)) old.Cancellation.Dispose();
         var job = new McpJob(name) { OwnerSessionId = _mcpControlOwnerSessionId };
+        long notificationGeneration = ++_mcpJobNotificationGeneration;
+        ProjectDocument owner = _project;
+        long projectGeneration = _projectGeneration;
+        long projectRevision = _projectRevision;
         _mcpJobs[job.Id] = job;
         job.Completion = Task.Run(async () =>
         {
             using var token = CancellationTokenSource.CreateLinkedTokenSource(job.Cancellation.Token, _mcpLifetime.Token);
             var progress = new McpProgress(value => { if (job.Status == "running") job.Progress = Math.Clamp(value, 0, 1); });
-            try { job.Result = await work(progress, token.Token); job.Progress = 1; job.Status = "completed"; }
+            try { job.Result = await work(job, progress, token.Token); job.Progress = 1; job.Status = "completed"; }
             catch (OperationCanceledException) { job.Status = "cancelled"; }
             catch (Exception exception) { job.Error = exception.Message; job.StageCode = StageCodes.Resolve(exception, "MCPJB0001"); job.Status = "failed"; }
             finally
@@ -348,7 +402,14 @@ public partial class MainWindow
                     {
                         if (_mcpControlOwnerSessionId is not null && job.OwnerSessionId == _mcpControlOwnerSessionId)
                             _mcpControlLastActivityUtc = DateTimeOffset.UtcNow;
-                        StatusText.Text = $"MCP · {job.Name} · {job.Status}"; UpdateMcpInfo();
+                        // A slow, older job must not replace the status of a
+                        // newer operation or an entirely different project.
+                        if (notificationGeneration == _mcpJobNotificationGeneration &&
+                            ReferenceEquals(owner, _project) && projectGeneration == _projectGeneration &&
+                            projectRevision == _projectRevision &&
+                            job.OwnerSessionId == _mcpControlOwnerSessionId)
+                            StatusText.Text = $"MCP · {job.Name} · {job.Status}";
+                        UpdateMcpInfo();
                     });
             }
         });

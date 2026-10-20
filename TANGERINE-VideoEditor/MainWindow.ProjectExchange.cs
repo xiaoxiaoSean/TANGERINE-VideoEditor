@@ -12,7 +12,8 @@ public partial class MainWindow
 {
     private async Task ExportProjectExchangeAsync()
     {
-        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress ||
+            _historyOperationInProgress || HasActiveEditorGesture) return;
         var picker = new SaveFileDialog
         {
             Title = "导出项目交换文件",
@@ -30,7 +31,8 @@ public partial class MainWindow
             ProjectDocument snapshot = await Task.Run(() =>
                 JsonSerializer.Deserialize<ProjectDocument>(JsonSerializer.Serialize(source))
                 ?? throw new ProjectExchangeException(ProjectExchangeStageCode.Validate, "无法复制当前项目。"));
-            if (!ReferenceEquals(source, _project) || revision != _projectRevision || generation != _projectGeneration)
+            if (!ReferenceEquals(source, _project) || revision != _projectRevision ||
+                generation != _projectGeneration || HasActiveEditorGesture)
                 throw new ProjectExchangeException(ProjectExchangeStageCode.Validate,
                     "准备交换文件期间项目已修改，请重新导出。");
             if (Path.GetExtension(picker.FileName).Equals(".edl", StringComparison.OrdinalIgnoreCase))
@@ -47,7 +49,8 @@ public partial class MainWindow
 
     private async Task ImportProjectExchangeAsync()
     {
-        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress ||
+            _historyOperationInProgress || HasActiveEditorGesture) return;
         var picker = new OpenFileDialog
         {
             Title = "导入项目交换文件",
@@ -57,6 +60,9 @@ public partial class MainWindow
         if (picker.ShowDialog(this) != true) return;
         if (!ConfirmDiscardChanges()) return;
         _projectIoInProgress = true;
+        ProjectDocument targetProject = _project;
+        long targetRevision = _projectRevision;
+        long targetGeneration = _projectGeneration;
         try
         {
             ProjectDocument imported = Path.GetExtension(picker.FileName).Equals(".edl", StringComparison.OrdinalIgnoreCase)
@@ -73,8 +79,15 @@ public partial class MainWindow
                         asset.ProxyPath = Path.GetFullPath(Path.Combine(baseDirectory, asset.ProxyPath));
                 }
             });
+            if (!ReferenceEquals(targetProject, _project) || targetRevision != _projectRevision ||
+                targetGeneration != _projectGeneration || HasActiveEditorGesture)
+            {
+                StatusText.Text = "交换文件导入已取消：读取期间当前项目已修改";
+                return;
+            }
             ProjectDocument outgoing = _project;
             _project = imported;
+            _projectCreated = true;
             _projectPath = null;
             _projectGeneration++;
             _projectRevision++;
@@ -95,8 +108,7 @@ public partial class MainWindow
 
     private void ShowExchangeError(ProjectExchangeException exception)
     {
-        StatusText.Text = $"交换文件操作失败 · EXCHANGE-{exception.StageCode}";
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：EXCHANGE-{exception.StageCode}",
-            "项目交换失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"交换文件操作失败 · {Tools.StageCodes.Resolve(exception, "EXCHG0900")}";
+        Tools.ErrorDialog.Show(this, "EXCHG0900", exception);
     }
 }

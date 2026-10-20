@@ -34,9 +34,9 @@ public partial class MainWindow
 
     private void CopySelectedClipProperties()
     {
-        if (_selectedClip is null)
+        if (_selectedClip is null || !_project.Tracks.Any(track => track.Clips.Contains(_selectedClip)))
         {
-            StatusText.Text = "请先选择要复制属性的片段 · PROP-COPY-TARGET";
+            StatusText.Text = "请先选择要复制属性的片段 · PROPC0001";
             return;
         }
         TimelineClip clip = _selectedClip;
@@ -49,7 +49,7 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is JsonException or AudioOperationException or NotSupportedException)
         {
-            ShowPropertyClipboardError("PROP-COPY", "无法复制片段属性。", exception);
+            ShowPropertyClipboardError("PROPC0001", "无法复制片段属性。", exception);
         }
     }
 
@@ -57,7 +57,7 @@ public partial class MainWindow
     {
         if (_propertyClipboard is null)
         {
-            StatusText.Text = "请先复制片段属性 · PROP-PASTE-EMPTY";
+            StatusText.Text = "请先复制片段属性 · PROPC0002";
             return;
         }
         IEnumerable<TimelineClip> candidates = _selectedClips.Count > 0
@@ -67,7 +67,7 @@ public partial class MainWindow
                 _project.Tracks.Any(track => !track.IsLocked && track.Clips.Contains(clip))).ToArray();
         if (targets.Length == 0)
         {
-            StatusText.Text = "没有可编辑的目标片段 · PROP-PASTE-TARGET";
+            StatusText.Text = "没有可编辑的目标片段 · PROPC0002";
             return;
         }
         try
@@ -124,13 +124,18 @@ public partial class MainWindow
                 }
             }
             MarkProjectDirty();
+            // Replaced key/effect/transition collections invalidate every
+            // inspector closure that was built from the previous objects.
+            _selectedKeyframe = null;
+            ClearTransitionSelection();
+            ShowSelectedObjectSettings();
             RefreshTimeline();
             SeekPreview(_project.Sequence.PlayheadSeconds);
             StatusText.Text = $"已粘贴属性到 {targets.Length} 个片段";
         }
         catch (Exception exception) when (exception is JsonException or AudioOperationException or NotSupportedException)
         {
-            ShowPropertyClipboardError("PROP-PASTE", "无法粘贴片段属性。", exception);
+            ShowPropertyClipboardError("PROPC0002", "无法粘贴片段属性。", exception);
         }
     }
 
@@ -139,8 +144,7 @@ public partial class MainWindow
 
     private void ShowPropertyClipboardError(string stageCode, string message, Exception exception)
     {
-        StatusText.Text = $"{message} · {stageCode}";
-        MessageBox.Show(this, $"{message}\n阶段代码：{stageCode}\n{exception.Message}",
-            "片段属性", MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"{message} · {Tools.StageCodes.Resolve(exception, stageCode)}";
+        Tools.ErrorDialog.Show(this, stageCode, exception);
     }
 }

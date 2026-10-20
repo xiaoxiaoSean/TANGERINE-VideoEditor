@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -34,6 +34,8 @@ public partial class MainWindow
     private long _monitorStateRevision;
     private long MonitorRevision => _projectRevision + _monitorStateRevision;
     private string? _previewSourcePath;
+    private string? _previewMediaOpenedPath;
+    private string? _previewMediaFailedPath;
     private long _previewImageRequest;
     private string? _previewImageLoadingPath;
     private string? _previewImageFailedPath;
@@ -58,6 +60,7 @@ public partial class MainWindow
     private long _previewSurfaceFirstClickTick;
     private Point _previewSurfaceFirstClickPoint;
     private bool _previewTextEditorPending;
+    private long _previewInteractionGeneration;
     private TimelineClip? _activePreviewVisualClip;
     private string? _activePreviewVisualSourcePath;
     private TimelineClip? _draggingMediaClip;
@@ -79,8 +82,9 @@ public partial class MainWindow
             if (!_catalogPreviewActive) return;
             if (PreviewMediaElement.CanPause && PreviewMediaElement.IsLoaded)
             {
-                if (PreviewMediaElement.Position >= PreviewMediaElement.NaturalDuration.TimeSpan &&
-                    PreviewMediaElement.NaturalDuration.HasTimeSpan) PreviewMediaElement.Position = TimeSpan.Zero;
+                if (PreviewMediaElement.NaturalDuration.HasTimeSpan &&
+                    PreviewMediaElement.Position >= PreviewMediaElement.NaturalDuration.TimeSpan)
+                    PreviewMediaElement.Position = TimeSpan.Zero;
                 if (CatalogPlaybackButton.Content?.ToString() == "❚❚")
                 {
                     PreviewMediaElement.Pause();
@@ -130,26 +134,31 @@ public partial class MainWindow
         ForwardButton.Click += (_, _) => SeekPreview(_project.Sequence.PlayheadSeconds + 1 / _project.Sequence.FramesPerSecond);
         PreviewMediaElement.MediaFailed += (_, args) =>
         {
+            if (!CurrentPreviewMediaOwnsMonitor()) return;
             if (_catalogPreviewActive)
             {
-                _catalogPreviewActive = false;
-                CatalogPlaybackBar.Visibility = Visibility.Collapsed;
-                StatusText.Text = $"示例预览失败 · {args.ErrorException?.Message ?? "无法打开示例视频"}";
+                StopCatalogPreview();
+                StatusText.Text = $"示例预览失败 · PRVEW0004：{args.ErrorException?.Message ?? "无法打开示例视频"}";
                 return;
             }
             if (_renderedPreviewClipId is not null) return;
+            _previewMediaOpenedPath = null;
+            _previewMediaFailedPath = _previewSourcePath;
             PreviewMediaElement.Visibility = Visibility.Collapsed;
             PreviewPlaceholder.Visibility = Visibility.Visible;
             PreviewMessage.Text = "媒体无法预览，请检查源文件";
-            StatusText.Text = $"预览失败 · PREVIEW-DECODE：{args.ErrorException?.Message ?? "未知媒体错误"}";
+            StatusText.Text = $"预览失败 · PRVEW0005：{args.ErrorException?.Message ?? "未知媒体错误"}";
             _lastTitleLayoutKey = null;
             DrawTextOverlay();
         };
         PreviewMediaElement.MediaOpened += (_, _) =>
         {
+            if (!CurrentPreviewMediaOwnsMonitor()) return;
             if (_catalogPreviewActive)
             {
                 PreviewMediaElement.Position = TimeSpan.Zero;
+                PreviewMediaElement.Visibility = Visibility.Visible;
+                PreviewPlaceholder.Visibility = Visibility.Collapsed;
                 PreviewMediaElement.Play();
                 CatalogPlaybackButton.Content = "❚❚";
                 return;
@@ -160,13 +169,28 @@ public partial class MainWindow
                 PreviewMediaElement.Visibility = Visibility.Collapsed;
                 return;
             }
+            _previewMediaOpenedPath = _previewSourcePath;
+            _previewMediaFailedPath = null;
+            TimelineClip? clip = _activePreviewVisualClip;
+            if (clip is not null)
+            {
+                // A seek set before MediaOpened can be lost by WPF while the
+                // source is loading. Reapply the newest playhead, rather than
+                // presenting this file's first frame or its previous position.
+                PreviewMediaElement.Position = TimeSpan.FromSeconds(Math.Max(0,
+                    ClipTimeMap.SourceTime(clip, _project.Sequence.PlayheadSeconds)));
+                if (_isPlaying) PreviewMediaElement.Play();
+                else PreviewMediaElement.Pause();
+            }
+            PreviewMediaElement.Visibility = Visibility.Visible;
+            PreviewPlaceholder.Visibility = Visibility.Collapsed;
             _lastMediaTransformKey = null;
             _lastTitleLayoutKey = null;
             DrawTextOverlay();
         };
         PreviewMediaElement.MediaEnded += (_, _) =>
         {
-            if (!_catalogPreviewActive) return;
+            if (!_catalogPreviewActive || !CurrentPreviewMediaOwnsMonitor()) return;
             CatalogPlaybackButton.Content = "▶";
             CatalogPlaybackSlider.Value = CatalogPlaybackSlider.Maximum;
         };
@@ -262,11 +286,65 @@ public partial class MainWindow
             PreviewZoomSlider.Value = Math.Clamp(PreviewZoomSlider.Value * Math.Pow(1.12, args.Delta / 120.0), .1, 4);
             args.Handled = true;
         };
+        Closed += (_, _) =>
+        {
+            _playbackTimer.Stop();
+            _catalogPlaybackTimer.Stop();
+            _previewImageRequest++;
+            ResetPreviewInteractionState();
+            ClearRenderedPreviewFrame();
+        };
+    }
+
+    private bool CurrentPreviewMediaOwnsMonitor()
+    {
+        Uri? source = PreviewMediaElement.Source;
+        if (source?.IsFile != true || _catalogPreviewPending || _cachedPreviewActive || BuiltinMusicOwnsMonitor) return false;
+        string? expected = _catalogPreviewActive ? _catalogPreviewPath : _previewSourcePath;
+        if (expected is null || !string.Equals(source.LocalPath, expected, StringComparison.OrdinalIgnoreCase)) return false;
+        if (_catalogPreviewActive) return true;
+        TimelineClip? clip = _activePreviewVisualClip;
+        return clip is not null && _project.Tracks.Any(track => !track.IsHidden && track.Kind != TrackKind.Audio &&
+            track.Clips.Contains(clip) && _project.Sequence.PlayheadSeconds >= clip.StartSeconds &&
+            _project.Sequence.PlayheadSeconds < clip.StartSeconds + clip.DurationSeconds);
+    }
+
+    private void ResetPreviewInteractionState()
+    {
+        Canvas? titleCapture = _draggingTitleVisual;
+        bool hadDrag = _draggingTitleClip is not null || _draggingMediaClip is not null || _vertexDragActive;
+        // Revoke state before releasing capture: LostMouseCapture callbacks
+        // must not commit an object from the previous selection or project.
+        _draggingTitleClip = null;
+        _draggingTitleVisual = null;
+        _titleDragChanged = false;
+        _draggingMediaClip = null;
+        _mediaDragChanged = false;
+        _mediaDraggingComposite = false;
+        _compositeDragRenderTimer?.Stop();
+        _vertexDragActive = false;
+        _vertexDragClip = null;
+        _vertexDragGraphic = null;
+        _vertexDragIndex = -1;
+        _vertexDragStartPoints.Clear();
+        _vertexOverlayVisual = null;
+        _vertexOverlayShape = null;
+        _vertexOverlayHandles.Clear();
+        _lastTitleClickClipId = null;
+        _lastTitleClickTick = 0;
+        _previewSurfaceFirstClick = false;
+        _previewSurfaceFirstClickTick = 0;
+        _previewInteractionGeneration++;
+        _previewTextEditorPending = false;
+        _lastTitleLayoutKey = null;
+        if (titleCapture?.IsMouseCaptured == true) titleCapture.ReleaseMouseCapture();
+        if (PreviewOverlay.IsMouseCaptured) PreviewOverlay.ReleaseMouseCapture();
+        if (hadDrag) ClearRenderedPreviewFrame();
     }
 
     private void SeekPreview(double seconds)
     {
-        if (_catalogPreviewActive || _catalogPreviewPending) return;
+        if (_catalogPreviewActive || _catalogPreviewPending || BuiltinMusicOwnsMonitor) return;
         _project.Sequence.PlayheadSeconds = Math.Max(0, seconds);
         if (_isPlaying && !_playbackTickSeeking)
         {
@@ -476,27 +554,46 @@ public partial class MainWindow
             PreviewMessage.Text = "音频片段";
             return;
         }
-        PreviewPlaceholder.Visibility = Visibility.Collapsed;
         PreviewImage.Visibility = Visibility.Collapsed;
         if (PreviewImage.Source is not null) PreviewImage.Source = null;
-        PreviewMediaElement.Visibility = PreviewRenderedFrame.Visibility == Visibility.Visible
-            ? Visibility.Collapsed : Visibility.Visible;
         string previewPath = asset.EffectivePreviewPath;
-        if (_previewSourcePath != previewPath || PreviewMediaElement.Source is null)
+        bool sourceChanged = !string.Equals(_previewSourcePath, previewPath, StringComparison.OrdinalIgnoreCase) ||
+            PreviewMediaElement.Source is null;
+        if (sourceChanged)
         {
             _previewImageRequest++;
             _previewImageLoadingPath = null;
             _previewImageFailedPath = null;
+            _previewMediaOpenedPath = null;
+            _previewMediaFailedPath = null;
+            PreviewMediaElement.Visibility = Visibility.Collapsed;
+            PreviewPlaceholder.Visibility = PreviewRenderedFrame.Visibility == Visibility.Visible
+                ? Visibility.Collapsed : Visibility.Visible;
+            if (PreviewPlaceholder.Visibility == Visibility.Visible)
+                PreviewMessage.Text = "正在加载视频…";
+            PreviewMediaElement.Stop();
+            PreviewMediaElement.Close();
+            PreviewMediaElement.Source = null;
             try { PreviewMediaElement.Source = new Uri(previewPath); }
             catch (UriFormatException exception)
             {
                 PreviewMediaElement.Visibility = Visibility.Collapsed;
                 PreviewPlaceholder.Visibility = Visibility.Visible;
                 PreviewMessage.Text = "媒体路径无效";
-                StatusText.Text = $"预览失败 · PREVIEW-SOURCE：{exception.Message}";
+                StatusText.Text = $"预览失败 · PRVEW0001：{exception.Message}";
                 return;
             }
             _previewSourcePath = previewPath;
+        }
+        else
+        {
+            bool opened = string.Equals(_previewMediaOpenedPath, previewPath, StringComparison.OrdinalIgnoreCase);
+            bool rendered = PreviewRenderedFrame.Visibility == Visibility.Visible;
+            PreviewPlaceholder.Visibility = opened || rendered ? Visibility.Collapsed : Visibility.Visible;
+            PreviewMediaElement.Visibility = opened && !rendered ? Visibility.Visible : Visibility.Collapsed;
+            if (!opened && !rendered)
+                PreviewMessage.Text = string.Equals(_previewMediaFailedPath, previewPath, StringComparison.OrdinalIgnoreCase)
+                    ? "媒体无法预览，请检查源文件" : "正在加载视频…";
         }
         TimeSpan sourceTime = TimeSpan.FromSeconds(Math.Max(0,
             ClipTimeMap.SourceTime(clip, _project.Sequence.PlayheadSeconds)));
@@ -536,7 +633,8 @@ public partial class MainWindow
         try
         {
             BitmapSource bitmap = await completion.Task;
-            if (request != _previewImageRequest || _previewSourcePath != path) return;
+            if (request != _previewImageRequest || _previewSourcePath != path ||
+                _catalogPreviewActive || _catalogPreviewPending || _cachedPreviewActive || BuiltinMusicOwnsMonitor) return;
             _previewImageLoadingPath = null;
             _previewImageFailedPath = null;
             PreviewImage.Source = bitmap;
@@ -554,13 +652,14 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
-            if (request != _previewImageRequest || _previewSourcePath != path) return;
+            if (request != _previewImageRequest || _previewSourcePath != path ||
+                _catalogPreviewActive || _catalogPreviewPending || _cachedPreviewActive || BuiltinMusicOwnsMonitor) return;
             _previewImageLoadingPath = null;
             _previewImageFailedPath = path;
             PreviewImage.Visibility = Visibility.Collapsed;
             PreviewPlaceholder.Visibility = Visibility.Visible;
             PreviewMessage.Text = "图片无法预览，请检查源文件";
-            StatusText.Text = $"图片预览失败 · PREVIEW-DECODE：{exception.Message}";
+            StatusText.Text = $"图片预览失败 · PRVEW0002：{exception.Message}";
             _lastTitleLayoutKey = null;
             DrawTextOverlay();
         }
@@ -568,7 +667,7 @@ public partial class MainWindow
 
     private void DrawTextOverlay()
     {
-        if (PreviewOverlay is null || _catalogPreviewActive || _catalogPreviewPending) return;
+        if (PreviewOverlay is null || _catalogPreviewActive || _catalogPreviewPending || BuiltinMusicOwnsMonitor) return;
         if (_draggingTitleClip is not null) return;
         string layoutKey = $"{_projectGeneration}:{_projectRevision}:" +
             $"{PreviewOverlay.ActualWidth:0.0}:{PreviewOverlay.ActualHeight:0.0}:{_selectedClip?.Id}:{_activePreviewVisualClip?.Id}:{_mediaCropMode}";
@@ -847,10 +946,15 @@ public partial class MainWindow
             Canvas.SetTop(selection, -3);
             titleVisual.Children.Add(selection);
             _titleSelectionOutlines[clip.Id] = selection;
-            titleVisual.PreviewMouseLeftButtonDown += (_, args) => { StartTitleDrag(clip, titleVisual, args); SelectClip(clip); ShowSelectedObjectSettings(); };
+            titleVisual.PreviewMouseLeftButtonDown += (_, args) =>
+            {
+                if (!IsCurrentPreviewTitle(clip)) { args.Handled = true; return; }
+                StartTitleDrag(clip, titleVisual, args); SelectClip(clip); ShowSelectedObjectSettings();
+            };
             titleVisual.MouseLeftButtonDown += (_, args) =>
             {
-                if (!args.Handled) { StartTitleDrag(clip, titleVisual, args); SelectClip(clip); ShowSelectedObjectSettings(); }
+                if (!args.Handled && IsCurrentPreviewTitle(clip))
+                { StartTitleDrag(clip, titleVisual, args); SelectClip(clip); ShowSelectedObjectSettings(); }
             };
             titleVisual.MouseMove += (_, args) => MoveTitleDrag(args);
             titleVisual.MouseLeftButtonUp += (_, args) => EndTitleDrag(args);
@@ -963,8 +1067,25 @@ public partial class MainWindow
 
     private static Brush BrushFromHex(string value) => (Brush)new BrushConverter().ConvertFromString(value)!;
 
+    private bool IsCurrentPreviewTitle(TimelineClip clip) => !_catalogPreviewActive && !_catalogPreviewPending &&
+        !BuiltinMusicOwnsMonitor &&
+        _project.Sequence.PlayheadSeconds >= clip.StartSeconds &&
+        _project.Sequence.PlayheadSeconds < clip.StartSeconds + clip.DurationSeconds &&
+        _project.Tracks.Any(track => !track.IsHidden && track.Kind != TrackKind.Audio && track.Clips.Contains(clip));
+
     private void StartTitleDrag(TimelineClip clip, Canvas visual, MouseButtonEventArgs args)
     {
+        if (!IsCurrentPreviewTitle(clip)) return;
+        if (_cachedPreviewActive)
+        {
+            // The cache suppresses overlays while its playhead keeps moving.
+            // Resolve the refreshed canvas after pausing, rather than capturing
+            // a title visual left over from the cache's starting position.
+            if (_isPlaying) TogglePlayback();
+            if (!_titlePreviewVisuals.TryGetValue(clip.Id, out Canvas? currentVisual) &&
+                !_graphicPreviewVisuals.TryGetValue(clip.Id, out currentVisual)) return;
+            visual = currentVisual;
+        }
         Point clickPoint = args.GetPosition(PreviewOverlay);
         long clickTick = Environment.TickCount64;
         bool sameTitleDoubleClick = _lastTitleClickClipId == clip.Id &&
@@ -987,7 +1108,17 @@ public partial class MainWindow
             args.Handled = true;
             return;
         }
-        if (_draggingTitleClip is not null) return;
+        if (_draggingTitleClip is not null)
+        {
+            Canvas? previousCapture = _draggingTitleVisual;
+            FinishTitleDrag();
+            if (previousCapture?.IsMouseCaptured == true) previousCapture.ReleaseMouseCapture();
+            // Finishing an earlier gesture can rebuild the overlay. Capture
+            // the current model's replacement canvas, never the detached one.
+            if (!_titlePreviewVisuals.TryGetValue(clip.Id, out Canvas? currentVisual) &&
+                !_graphicPreviewVisuals.TryGetValue(clip.Id, out currentVisual)) return;
+            visual = currentVisual;
+        }
         _previewSurfaceFirstClick = false;
         _selectedClip = clip;
         _selectedTrack = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
@@ -1024,14 +1155,22 @@ public partial class MainWindow
         {
             _draggingTitleClip = null;
             _draggingTitleVisual = null;
-            StatusText.Text = "无法捕获鼠标，文字拖动未开始 · PREVIEW-INPUT";
+            StatusText.Text = "无法捕获鼠标，文字拖动未开始 · PRVEW0006";
         }
         args.Handled = true;
     }
 
     private void MoveTitleDrag(MouseEventArgs args)
     {
-        if (_draggingTitleClip is null || _draggingTitleVisual is null || args.LeftButton != MouseButtonState.Pressed) return;
+        if (_draggingTitleClip is null || _draggingTitleVisual is null) return;
+        if (args.LeftButton != MouseButtonState.Pressed ||
+            !ReferenceEquals(_selectedClip, _draggingTitleClip) || !IsCurrentPreviewTitle(_draggingTitleClip))
+        {
+            Canvas captured = _draggingTitleVisual;
+            FinishTitleDrag();
+            if (captured.IsMouseCaptured) captured.ReleaseMouseCapture();
+            return;
+        }
         Point point = args.GetPosition(PreviewOverlay);
         double dx = point.X - _titleDragStart.X;
         double dy = point.Y - _titleDragStart.Y;
@@ -1079,7 +1218,7 @@ public partial class MainWindow
     {
         if (_draggingTitleClip is null) return;
         TimelineClip clip = _draggingTitleClip;
-        bool changed = _titleDragChanged;
+        bool changed = _titleDragChanged && _project.Tracks.Any(track => track.Clips.Contains(clip));
         if (changed)
         {
             // Mark before clearing drag state so a stale async frame from a
@@ -1097,7 +1236,7 @@ public partial class MainWindow
 
     private void OpenPreviewTextEditor(TimelineClip clip)
     {
-        if (_previewTextEditorPending) return;
+        if (_previewTextEditorPending || !IsCurrentPreviewTitle(clip)) return;
         _lastTitleClickClipId = null;
         _previewSurfaceFirstClick = false;
         _selectedClip = clip;
@@ -1112,14 +1251,19 @@ public partial class MainWindow
         // preview's mouse capture alive until the dialog closes. Wait until
         // the current click has finished dispatching before showing it.
         _previewTextEditorPending = true;
+        long interactionGeneration = _previewInteractionGeneration;
         Dispatcher.BeginInvoke(new Action(() =>
         {
             try
             {
-                if (_project.Tracks.Any(track => track.Clips.Contains(clip)))
+                if (interactionGeneration == _previewInteractionGeneration &&
+                    ReferenceEquals(_selectedClip, clip) && IsCurrentPreviewTitle(clip))
                     ShowTextProperties(clip);
             }
-            finally { _previewTextEditorPending = false; }
+            finally
+            {
+                if (interactionGeneration == _previewInteractionGeneration) _previewTextEditorPending = false;
+            }
         }), DispatcherPriority.Background);
     }
 
@@ -1152,6 +1296,7 @@ public partial class MainWindow
         if (_isPlaying) _playbackDirection = 1;
         if (_isPlaying)
         {
+            StopBuiltinMusicPreview();
             _playbackEndSeconds = _project.Tracks.SelectMany(track => track.Clips)
                 .Select(clip => clip.StartSeconds + clip.DurationSeconds).DefaultIfEmpty(0).Max();
             _playbackClockStartSeconds = _project.Sequence.PlayheadSeconds;
@@ -1177,6 +1322,7 @@ public partial class MainWindow
             return;
         }
         _playbackDirection = direction < 0 ? -1 : 1;
+        StopBuiltinMusicPreview();
         if (_isPlaying) { _isPlaying = false; _playbackTimer.Stop(); _playbackClock.Stop(); PauseAudioPreview(); }
         _isPlaying = true;
         PlayPauseButton.Content = "Ⅱ";
@@ -1188,6 +1334,7 @@ public partial class MainWindow
 
     private void StopPlayback()
     {
+        StopBuiltinMusicPreview(restoreTimeline: false);
         _isPlaying = false;
         _playbackTimer.Stop();
         _playbackClock.Stop();

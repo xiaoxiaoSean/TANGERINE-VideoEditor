@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -20,7 +20,7 @@ public partial class MainWindow
     /// timeline and preview and reports the change.
     /// </summary>
     private void AddTransitionParameterRows(Panel host, ClipTransition transition, Thickness margin,
-        Action<string> changed)
+        Action<string> changed, Func<bool>? canCommit = null)
     {
         foreach (var track in _project.Tracks)
         foreach (var incoming in track.Clips)
@@ -32,11 +32,15 @@ public partial class MainWindow
             AddTransitionNumber(host, margin, parameter.Label,
                 TransitionSettings.Value(transition, parameter.Key), parameter.Minimum, parameter.Maximum,
                 value => TransitionSettings.Write(transition, parameter.Key,
-                    parameter.Integer ? Math.Round(value) : value), changed, parameter.Integer);
+                    parameter.Integer ? Math.Round(value) : value), changed, parameter.Integer,
+                () => host.IsLoaded && host.IsVisible && (canCommit?.Invoke() ?? true) &&
+                    _project.Tracks.Any(track => !track.IsLocked &&
+                        track.Clips.Any(clip => clip.Transitions.Contains(transition))));
     }
 
     private void AddTransitionNumber(Panel host, Thickness margin, string label, double current,
-        double minimum, double maximum, Action<double> assign, Action<string> changed, bool integer = false)
+        double minimum, double maximum, Action<double> assign, Action<string> changed, bool integer = false,
+        Func<bool>? canCommit = null)
     {
         static string Show(double value) => value.ToString("0.####", CultureInfo.CurrentCulture);
         host.Children.Add(new TextBlock
@@ -52,11 +56,14 @@ public partial class MainWindow
         };
         void Commit()
         {
+            // Inspector removal also moves keyboard focus. Detached fields
+            // must never write their captured transition into an old project.
+            if (canCommit?.Invoke() == false) return;
             if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
                 !double.IsFinite(value) || value < minimum || value > maximum ||
                 integer && Math.Abs(value - Math.Round(value)) > .000001)
             {
-                StatusText.Text = $"“{label}”须为 {Show(minimum)} 到 {Show(maximum)} 之间的{(integer ? "整数" : "数值")} · VIS-TRANSITION-PARAM";
+                StatusText.Text = $"“{label}”须为 {Show(minimum)} 到 {Show(maximum)} 之间的{(integer ? "整数" : "数值")} · EFECT0913";
                 box.Text = Show(accepted);
                 return;
             }

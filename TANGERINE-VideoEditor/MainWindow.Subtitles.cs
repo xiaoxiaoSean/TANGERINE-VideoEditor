@@ -68,7 +68,7 @@ public partial class MainWindow
         double start = Math.Max(0, _project.Sequence.PlayheadSeconds);
         if (!double.IsFinite(start) || start + 3 > 24 * 3600)
         {
-            StatusText.Text = "播放头超出可添加字幕的范围 · SUBTITLE-VALIDATE";
+            StatusText.Text = "播放头超出可添加字幕的范围 · SUBTL0901";
             return;
         }
         var clip = new TimelineClip
@@ -82,6 +82,7 @@ public partial class MainWindow
         SaveUndoState();
         TimelineTrack track = GetOrCreateTextTrack(clip.StartSeconds, clip.DurationSeconds);
         track.Clips.Add(clip);
+        ClearTimelineSelection();
         _selectedTrack = track;
         _selectedClip = clip;
         _selectedClips.Clear();
@@ -142,6 +143,7 @@ public partial class MainWindow
                     DurationSeconds = cue.EndSeconds - cue.StartSeconds,
                     Text = CreateSubtitleStyle(cue.Text)
                 });
+            ClearTimelineSelection();
             _selectedTrack = track;
             MarkProjectDirty();
             RefreshTimeline();
@@ -360,7 +362,7 @@ public partial class MainWindow
         try { graphic = GraphicShape.FromClip(clip); }
         catch (GraphicShapeException exception)
         {
-            StatusText.Text = $"图形预览失败 · {exception.StageCode}";
+            StatusText.Text = $"图形预览失败 · {Tools.StageCodes.Resolve(exception, "GRAPH0900")}";
             return;
         }
         if (graphic is null) return;
@@ -368,7 +370,7 @@ public partial class MainWindow
         try { shape = graphic.CreateVisual(_project.Sequence.Width, _project.Sequence.Height, scale); }
         catch (GraphicShapeException exception)
         {
-            StatusText.Text = $"图形预览失败 · {exception.StageCode}";
+            StatusText.Text = $"图形预览失败 · {Tools.StageCodes.Resolve(exception, "GRAPH0900")}";
             return;
         }
         double now = _project.Sequence.PlayheadSeconds;
@@ -597,12 +599,15 @@ public partial class MainWindow
         System.Windows.Input.MouseButtonEventArgs args)
     {
         TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
-        if (track is null || track.IsLocked)
+        if (track is null || track.IsLocked || !ReferenceEquals(_selectedClip, clip) ||
+            !IsCurrentPreviewTitle(clip))
         {
-            StatusText.Text = track is null ? "图形已不在当前项目中" : "轨道已锁定，无法调整图形";
+            StatusText.Text = track is null ? "图形已不在当前项目中" :
+                track.IsLocked ? "轨道已锁定，无法调整图形" : "图形选择已变化，无法调整";
             return;
         }
-        if (_vertexOverlayVisual is null || _vertexOverlayShape is null) return;
+        if (_vertexOverlayVisual is null || _vertexOverlayShape is null ||
+            !ReferenceEquals(_graphicPreviewVisuals.GetValueOrDefault(clip.Id), _vertexOverlayVisual)) return;
         _vertexDragActive = true;
         _vertexDragClip = clip;
         _vertexDragGraphic = graphic;
@@ -671,7 +676,15 @@ public partial class MainWindow
             _vertexDragStartPoints = new List<Point>(graphic.Points);
         }
 
-        PreviewOverlay.CaptureMouse();
+        if (!PreviewOverlay.CaptureMouse())
+        {
+            _vertexDragActive = false;
+            _vertexDragClip = null;
+            _vertexDragGraphic = null;
+            _vertexDragIndex = -1;
+            StatusText.Text = "无法捕获鼠标，图形顶点拖动未开始 · PRVEW0006";
+            return;
+        }
         args.Handled = true;
     }
 
@@ -681,8 +694,14 @@ public partial class MainWindow
     /// </summary>
     private void MoveShapeVertexDrag(System.Windows.Input.MouseEventArgs args)
     {
-        if (!_vertexDragActive || _vertexDragGraphic is null ||
+        if (!_vertexDragActive || _vertexDragGraphic is null || _vertexDragClip is null ||
             _vertexOverlayShape is null || _vertexOverlayVisual is null) return;
+        if (!IsCurrentEditableClip(_vertexDragClip) || !IsCurrentPreviewTitle(_vertexDragClip) ||
+            !ReferenceEquals(_graphicPreviewVisuals.GetValueOrDefault(_vertexDragClip.Id), _vertexOverlayVisual))
+        {
+            FinishShapeVertexDrag();
+            return;
+        }
         if (args.LeftButton != System.Windows.Input.MouseButtonState.Pressed)
         {
             FinishShapeVertexDrag();
@@ -904,9 +923,9 @@ public partial class MainWindow
         if (PreviewOverlay.IsMouseCaptured) PreviewOverlay.ReleaseMouseCapture();
         if (clip is null || graphic is null) return;
         TimelineTrack? track = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
-        if (track is null || track.IsLocked)
+        if (track is null || track.IsLocked || !IsCurrentEditableClip(clip) || !IsCurrentPreviewTitle(clip))
         {
-            StatusText.Text = "图形调整已取消：轨道状态已变化 · VIS-SHAPE-LOCKED";
+            StatusText.Text = "图形调整已取消：轨道状态已变化 · GRAPH0903";
             SeekPreview(_project.Sequence.PlayheadSeconds);
             return;
         }
@@ -931,7 +950,7 @@ public partial class MainWindow
             graphic.HeightFraction = startHeight;
             if (_vertexDragStartPoints.Count > 0)
                 graphic.Points = new List<Point>(_vertexDragStartPoints);
-            StatusText.Text = $"图形顶点无效，已还原 · {exception.StageCode}：{exception.Message}";
+            StatusText.Text = $"图形顶点无效，已还原 · {Tools.StageCodes.Resolve(exception, "GRAPH0900")}：{exception.Message}";
             SeekPreview(_project.Sequence.PlayheadSeconds);
             return;
         }
@@ -996,9 +1015,8 @@ public partial class MainWindow
         catch (GraphicTemplateException exception) { ReportGraphicTemplateError(exception); }
         catch (GraphicShapeException exception)
         {
-            StatusText.Text = $"图形模板操作失败 · {exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "图形模板操作失败",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = $"图形模板操作失败 · {Tools.StageCodes.Resolve(exception, "GTMPL0900")}";
+            Tools.ErrorDialog.Show(this, "GTMPL0900", exception);
         }
         catch (Exception exception) when (exception is System.Text.Json.JsonException or NotSupportedException or
             InvalidOperationException)
@@ -1015,21 +1033,28 @@ public partial class MainWindow
         if (picker.ShowDialog(this) != true) return;
         ProjectDocument targetProject = _project;
         long targetRevision = _projectRevision;
+        long targetGeneration = _projectGeneration;
+        TimelineTrack? selectedTrack = _selectedTrack;
+        TimelineClip? selectedClip = _selectedClip;
+        TimelineTrack? track = selectedTrack is { IsLocked: false, Kind: TrackKind.Video } &&
+            _project.Tracks.Contains(selectedTrack) ? selectedTrack :
+            _project.Tracks.FirstOrDefault(item => item.Kind == TrackKind.Video && !item.IsLocked);
+        if (track is null) { StatusText.Text = "没有可插入图形的未锁定视频轨道"; return; }
+        double startSeconds = Math.Max(0, _project.Sequence.PlayheadSeconds);
+        bool IsCurrentTarget() => ReferenceEquals(targetProject, _project) &&
+            targetRevision == _projectRevision && targetGeneration == _projectGeneration &&
+            ReferenceEquals(selectedTrack, _selectedTrack) && ReferenceEquals(selectedClip, _selectedClip) &&
+            _project.Tracks.Contains(track) && !track.IsLocked;
         try
         {
             GraphicTemplateDocument template = await GraphicTemplateDocument.ReadAsync(picker.FileName);
-            if (!ReferenceEquals(targetProject, _project) || targetRevision != _projectRevision)
+            if (!IsCurrentTarget())
             { StatusText.Text = "模板插入已中止：项目在读取期间切换"; return; }
-            TimelineTrack? track = _selectedTrack is { IsLocked: false } selected &&
-                selected.Kind == TrackKind.Video
-                ? selected : _project.Tracks.FirstOrDefault(item => item.Kind == TrackKind.Video && !item.IsLocked);
-            if (track is null) { StatusText.Text = "没有可插入图形的未锁定视频轨道"; return; }
-            double startSeconds = Math.Max(0, _project.Sequence.PlayheadSeconds);
             TimelineClip clip = await Task.Run(() => template.Instantiate(startSeconds));
-            if (!ReferenceEquals(targetProject, _project) || targetRevision != _projectRevision ||
-                !_project.Tracks.Any(item => ReferenceEquals(item, track) && !item.IsLocked))
+            if (!IsCurrentTarget())
             { StatusText.Text = "模板插入已中止：项目在准备期间变化"; return; }
             SaveUndoState(); track.Clips.Add(clip);
+            ClearTimelineSelection();
             _selectedTrack = track; _selectedClip = clip; _selectedClips.Clear(); _selectedClips.Add(clip);
             MarkProjectDirty(); RefreshTimeline(); SeekPreview(clip.StartSeconds);
             StatusText.Text = $"已插入图形模板：{template.Name}";
@@ -1037,9 +1062,9 @@ public partial class MainWindow
         catch (GraphicTemplateException exception) { ReportGraphicTemplateError(exception); }
         catch (GraphicShapeException exception)
         {
-            StatusText.Text = $"图形模板操作失败 · {exception.StageCode}";
-            MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "图形模板操作失败",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!IsCurrentTarget()) return;
+            StatusText.Text = $"图形模板操作失败 · {Tools.StageCodes.Resolve(exception, "GTMPL0901")}";
+            Tools.ErrorDialog.Show(this, "GTMPL0901", exception);
         }
         catch (Exception exception) when (exception is System.Text.Json.JsonException or NotSupportedException or
             InvalidOperationException)
@@ -1051,15 +1076,13 @@ public partial class MainWindow
 
     private void ReportSubtitleError(SubtitleException exception)
     {
-        StatusText.Text = $"字幕操作失败 · {exception.StageCode}";
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "字幕操作失败",
-            MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"字幕操作失败 · {Tools.StageCodes.Resolve(exception, "SUBTL0900")}";
+        Tools.ErrorDialog.Show(this, "SUBTL0900", exception);
     }
 
     private void ReportGraphicTemplateError(GraphicTemplateException exception)
     {
-        StatusText.Text = $"图形模板操作失败 · {exception.StageCode}";
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "图形模板操作失败",
-            MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"图形模板操作失败 · {Tools.StageCodes.Resolve(exception, "GTMPL0900")}";
+        Tools.ErrorDialog.Show(this, "GTMPL0900", exception);
     }
 }

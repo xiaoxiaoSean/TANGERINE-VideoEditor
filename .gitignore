@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Source downloads used only while curating the bundled music assets.
+tools/.builtin-music-collection/

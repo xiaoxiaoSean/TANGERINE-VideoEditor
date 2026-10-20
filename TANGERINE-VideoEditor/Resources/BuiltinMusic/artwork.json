@@ -1,0 +1,608 @@
+{
+  "generator": "tools/GenerateMusicArtwork.py",
+  "width": 640,
+  "height": 360,
+  "description": "Original procedural genre illustrations; no third-party image assets.",
+  "covers": [
+    {
+      "id": "music.bleeps-and-bloops-bleep-is-for-learning-stuff-e7e22c33",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-bleep-is-for-learning-stuff-e7e22c33.png",
+      "sha256": "cee76aedc383a537688b6d509c44812dc18b4a84774ccb39510698e03f1604db"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-sunglasses-d548e330",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-sunglasses-d548e330.png",
+      "sha256": "79bb74970779407a73b07ff6a60cde205590116fc5c67e7b69992fdaa2c2de98"
+    },
+    {
+      "id": "music.robot-dance-everyone-is-so-alive-679d63a2",
+      "theme": "electronic",
+      "file": "thumbnails/music.robot-dance-everyone-is-so-alive-679d63a2.png",
+      "sha256": "99f0422e563ec943b6c0a21ecbbe38d7b738adc041071d7694582b59c455d257"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-roller-fever-f2b6b1db",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-roller-fever-f2b6b1db.png",
+      "sha256": "2004113f82a00bb802a5027b3a666f4c621425237706f3a0c5e81c67ce1c6d05"
+    },
+    {
+      "id": "music.relaxing-ukulele-red-hair-blue-sky-bdef5c96",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-red-hair-blue-sky-bdef5c96.png",
+      "sha256": "aed443ce45aec3cf31eae2430c6e7c7c9d445fa36df70332acfb9166f840df67"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-the-calling-1fa44c81",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-the-calling-1fa44c81.png",
+      "sha256": "c988b0d3e9d96d0d363d44b584bc7d91972918059a461f99266e01026545ea57"
+    },
+    {
+      "id": "music.hyper-metal-maxi-metal-301c587d",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-maxi-metal-301c587d.png",
+      "sha256": "39b7cc706356302ddbd6cf8d0a1aa14df4bd488702e71d75c276ed6cb6b9c60d"
+    },
+    {
+      "id": "music.positive-attitude-go-to-the-picnic-c7754e6b",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-go-to-the-picnic-c7754e6b.png",
+      "sha256": "9955a2333859b3a5e6d594ebd321e636c024e747e84e4ed6d91ccab54368e3e4"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-you-are-in-good-hands-ef519050",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-you-are-in-good-hands-ef519050.png",
+      "sha256": "0987f440703d8cf0ad048bd77012d40181b0a29a6f820cc768e39a517b5a50f7"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-coexistenz-0e56f2db",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-coexistenz-0e56f2db.png",
+      "sha256": "b5066dab45972e1ef0de28f89f44fb49fa03fe5f40ac03887bbab9fca3e1cc5f"
+    },
+    {
+      "id": "music.melodies-with-a-beat-sweet-you-e56496a4",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-sweet-you-e56496a4.png",
+      "sha256": "06832dfb4db5deda78a6125a1384d097c855c7d85906bc08fcc0d0671fbf95f9"
+    },
+    {
+      "id": "music.incredible-kart-game-title-screen-7be13db7",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-title-screen-7be13db7.png",
+      "sha256": "d8ee906e2111eead75fce976585fc8ec1be019a14688965d01b4fdfbe53dd6f6"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-the-main-reason-we-are-here-13360865",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-the-main-reason-we-are-here-13360865.png",
+      "sha256": "006a5adb86bcfe56df6376e2617342ccd6b8e0c26e0b1d6b959542e02bfd9afa"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-gloomy-sadie-354ae4a8",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-gloomy-sadie-354ae4a8.png",
+      "sha256": "b9fb0df720d5b730740e01991203e1cbb4aeb76fbf7b2e1a3e3a303551c9f8ac"
+    },
+    {
+      "id": "music.bleeps-and-bloops-chill-out-of-the-bloop-798ea1b6",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-chill-out-of-the-bloop-798ea1b6.png",
+      "sha256": "02f2e28bcba9a63a5b05b947c957310cfbed14b14daa22817b24d5685934e4c3"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-friend-to-friend-ec9164cc",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-friend-to-friend-ec9164cc.png",
+      "sha256": "991c2d03bc56c87b7ca32a9196e6ff9acdb6ece556475071dcc0cdd3ff0f878f"
+    },
+    {
+      "id": "music.robot-dance-high-technologic-beat-explosion-0b8d92b7",
+      "theme": "electronic",
+      "file": "thumbnails/music.robot-dance-high-technologic-beat-explosion-0b8d92b7.png",
+      "sha256": "ba28bcdeac0b740132d8906bf4e49d8b656045526e46e2745478a91542eac923"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-dance-robot-activate-9e971d9f",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-dance-robot-activate-9e971d9f.png",
+      "sha256": "f97e4e80936512358e605963311e001f977190ffc7f79416ff0a782184cd9c30"
+    },
+    {
+      "id": "music.relaxing-ukulele-sincere-love-ad779ab8",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-sincere-love-ad779ab8.png",
+      "sha256": "2155b7d4680fcec03743532628217adb0371bfc8ea35596f3bb0c2d3ef8078a3"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-on-the-tracks-of-the-elders-4ff8bbaf",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-on-the-tracks-of-the-elders-4ff8bbaf.png",
+      "sha256": "29ed1fb65c9677d9fdd475c1cfc187fe260c3268b138475d7c73f811d3c0c055"
+    },
+    {
+      "id": "music.hyper-metal-mega-metal-f394eaf6",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-mega-metal-f394eaf6.png",
+      "sha256": "0480ae4eee0796c6883dd8615a00da6a6badc137ce62a4099812c27a5f4bdf05"
+    },
+    {
+      "id": "music.positive-attitude-hug-convoy-82270ce7",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-hug-convoy-82270ce7.png",
+      "sha256": "3ab798048b094ccde6e30c7373827768f13a875bcf21b0b6eab214aceacb8ac0"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-horror-abaeeeba",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-horror-abaeeeba.png",
+      "sha256": "f10552df1688c10180e79308fbaf3352f184a4ec2c218ff3d72546f7791b6065"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-everyone-930bd11b",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-everyone-930bd11b.png",
+      "sha256": "96655c847b92763aca46e2b1725f8b87195d60b1f0ffbbb6d65d9c710217c205"
+    },
+    {
+      "id": "music.melodies-with-a-beat-old-saga-5a8e719a",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-old-saga-5a8e719a.png",
+      "sha256": "b571770621675fdec849616c1f421956b377139a217b3ebfcc7ef4db62d508a8"
+    },
+    {
+      "id": "music.incredible-kart-game-visiting-the-city-with-your-kart-8affff18",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-visiting-the-city-with-your-kart-8affff18.png",
+      "sha256": "dda1727708adf403ed373962cb2b251882ed9cb9d4bd7432b779b0ed21603941"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-a-forest-for-you-and-me-04067df3",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-a-forest-for-you-and-me-04067df3.png",
+      "sha256": "a0d610e5afee408ccb7bf0c5f482b88bad733980ec4609a42e2b3564d6344200"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-forgot-what-it-does-to-me-9df62afe",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-forgot-what-it-does-to-me-9df62afe.png",
+      "sha256": "6152ef68e151d6aa7ee483598d91467a1b7436f7321980fb4cb3e834262ac819"
+    },
+    {
+      "id": "music.bleeps-and-bloops-my-bleep-bloop-is-feeling-emotional-3d7ad64a",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-my-bleep-bloop-is-feeling-emotional-3d7ad64a.png",
+      "sha256": "8740102f3a7a4f0557fc214d8f461a6b3901eb17f930bd1dcad6aab1ad296e66"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-sensual-melancholia-cfb7b43b",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-sensual-melancholia-cfb7b43b.png",
+      "sha256": "f1bebdfe86ef4c40c3eadc122dc51ccbaa0e0807a8f5ea8484683a5df6f1c222"
+    },
+    {
+      "id": "music.robot-dance-after-party-58cd7992",
+      "theme": "electronic",
+      "file": "thumbnails/music.robot-dance-after-party-58cd7992.png",
+      "sha256": "6653b8e277920f279b20bcd0788329b3c9206962078564d847515021c5402d68"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-i-m-on-fire-b7b83070",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-i-m-on-fire-b7b83070.png",
+      "sha256": "bfd89e4eecf737c7164268ec6e227f72b5148084f01e3bb59e2ea8e8147565c8"
+    },
+    {
+      "id": "music.relaxing-ukulele-time-gap-ca6e5db9",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-time-gap-ca6e5db9.png",
+      "sha256": "c855dd295d8aa556002ff1e1e6abe500f3a324bae656da64fdb96adaee1d7b27"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-the-urge-of-moving-smile-on-the-faces-9154ad63",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-the-urge-of-moving-smile-on-the-faces-9154ad63.png",
+      "sha256": "e61f4dedf7754784f5bf33ce4bdf420bc6e94a71ac83ce40fb9f352b94e68b30"
+    },
+    {
+      "id": "music.hyper-metal-ultra-metal-12d52b6b",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-ultra-metal-12d52b6b.png",
+      "sha256": "252c066a15660bf4944e6fe759090e729eefd046fad67080578b6c57b5c49b80"
+    },
+    {
+      "id": "music.positive-attitude-love-train-05633514",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-love-train-05633514.png",
+      "sha256": "dc84c0e46dc6765a6d5d3aea1dc37af613f50be5a403e8b172529a3d67c7897f"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-horrorness-013d966c",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-horrorness-013d966c.png",
+      "sha256": "078717a41ce8f48eb9745a8ebb4eacbf51e0ce1b6ed04adf07593b54db1d26a5"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-chillin-with-a-drink-at-the-club-0d57863a",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-chillin-with-a-drink-at-the-club-0d57863a.png",
+      "sha256": "9610310057591d844e154a2b4a49f61b5fc944c594d7abcaac9276a059e96583"
+    },
+    {
+      "id": "music.melodies-with-a-beat-love-him-5d3fcbaa",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-love-him-5d3fcbaa.png",
+      "sha256": "66e99ab9614a5e527b95f0d7528c1b859b59a9b9cace81235243c28854261440"
+    },
+    {
+      "id": "music.incredible-kart-game-stargazing-with-partners-of-karting-118b0fcf",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-stargazing-with-partners-of-karting-118b0fcf.png",
+      "sha256": "c96c2a581cfd2f0a8c6efab6745932d9210871ecf98238c1920c7e393f46ddfd"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-the-sequence-of-everything-f4ac3f5a",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-the-sequence-of-everything-f4ac3f5a.png",
+      "sha256": "c4d918a8a6542ba7252ce550c569fe361e78f3b4492edc3b44af0b1b7d39ff3e"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-we-need-a-detective-44da4aaa",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-we-need-a-detective-44da4aaa.png",
+      "sha256": "53722eee6761226adfb1628ece0d053bb2a528204b088732fee368be042acfd6"
+    },
+    {
+      "id": "music.bleeps-and-bloops-making-my-bleep-ready-for-action-eyes-muscle-dcb268ac",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-making-my-bleep-ready-for-action-eyes-muscle-dcb268ac.png",
+      "sha256": "efb46af861234a3118eb78b05f2e0e586a7899244af48944481d551427f06d17"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-dirty-shoes-blues-a0b29418",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-dirty-shoes-blues-a0b29418.png",
+      "sha256": "53744c493e68b7ae33a6bb253d6d16f19493406c082e18f0f41cea503b671258"
+    },
+    {
+      "id": "music.robot-dance-it-feels-good-to-be-alive-too-7cf23d47",
+      "theme": "electronic",
+      "file": "thumbnails/music.robot-dance-it-feels-good-to-be-alive-too-7cf23d47.png",
+      "sha256": "908b30593e9d6929fe5e330f47f391efecf062585022288f5b5d6c8045d94101"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-can-t-stop-my-feet-320fa9ac",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-can-t-stop-my-feet-320fa9ac.png",
+      "sha256": "ef87243dd16db77b653b2340f374cbeca98f55f17ebba3cb82b7890d08470dc5"
+    },
+    {
+      "id": "music.relaxing-ukulele-first-47a25963",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-first-47a25963.png",
+      "sha256": "f8e8e8dd0f647fadddf5227aaf1f8e6acd4d5ff0b83adf1c4dd3c0c5e9f8da99"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-tonight-we-feast-297da5d7",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-tonight-we-feast-297da5d7.png",
+      "sha256": "8eea8318a2009fc19daac8f88edc676990439cb89dede91451122596402c0553"
+    },
+    {
+      "id": "music.hyper-metal-extra-metal-8fc20130",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-extra-metal-8fc20130.png",
+      "sha256": "4010d2d265747d455a28f8497b41c3dffa4221f9ac427d78053d7fe4ab7d65dd"
+    },
+    {
+      "id": "music.positive-attitude-sweet-sun-78db3cae",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-sweet-sun-78db3cae.png",
+      "sha256": "ec845383f3589e5bee6cf352030d0475389d38fb4fa8cc7b566848b848347e71"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-horrorer-8d8c1525",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-horrorer-8d8c1525.png",
+      "sha256": "837259b8c9ca9f23e29ad4371322bd1d41582a737eff26a89da317f50b5a34d4"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-you-know-why-bfb1d5b0",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-you-know-why-bfb1d5b0.png",
+      "sha256": "40d8cf01b2acd6cc99bdea6830f456e9b1c9eed1c2fdbc04a83b4d43006bba02"
+    },
+    {
+      "id": "music.melodies-with-a-beat-love-her-dcf4d2db",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-love-her-dcf4d2db.png",
+      "sha256": "cfb35d7bfec60e7b31265b3442792bfeb167d2c6949fc3b6df53adf8635cbcff"
+    },
+    {
+      "id": "music.incredible-kart-game-baseball-music-while-waiting-for-online-partners-02c16af4",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-baseball-music-while-waiting-for-online-partners-02c16af4.png",
+      "sha256": "0299082da3e249107bafa9e6655fad2c66580caa2195b2d7298b703f94a206cb"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-walk-in-the-forest-e9abead3",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-walk-in-the-forest-e9abead3.png",
+      "sha256": "33c22d04722cb067fc3a98775dd6e0574b883c813015ee53c381b0cac465f900"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-we-don-t-need-a-hero-1df1c918",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-we-don-t-need-a-hero-1df1c918.png",
+      "sha256": "143f20e7bf2f22a1c35fb520648e7a8293be8655599e1314e70a5663635aa5fa"
+    },
+    {
+      "id": "music.bleeps-and-bloops-bloop-is-for-critical-thinking-c10bd5c9",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-bloop-is-for-critical-thinking-c10bd5c9.png",
+      "sha256": "7325b3333201f6c0d8c42c3deac65df4d845fd8db1a002eaeddda22a43a7c1fc"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-the-candle-920cbc9e",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-the-candle-920cbc9e.png",
+      "sha256": "9e2d41f9513354fb1deccfab75030776e59dc94f2655271b9244a94d41e6df08"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-grab-a-partner-aaf51165",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-grab-a-partner-aaf51165.png",
+      "sha256": "fea13bc1d1754f10bd73170e56e2e256e0ce7601bc4faeb23c99293102c6a5b8"
+    },
+    {
+      "id": "music.relaxing-ukulele-stay-quiet-9d98db3a",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-stay-quiet-9d98db3a.png",
+      "sha256": "62a4746eaef5caed0eae8ddb1b52fe25c66c548a37e815e1d5542b66e00f523b"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-sweet-night-and-friends-397dbd15",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-sweet-night-and-friends-397dbd15.png",
+      "sha256": "da551b8e4625aa63283ea7cbd00cb73b7d0df5478846dd103fabbe0456140aba"
+    },
+    {
+      "id": "music.hyper-metal-super-metal-b46fe7a3",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-super-metal-b46fe7a3.png",
+      "sha256": "5ff1aa665818c083eb1128867afaf5791ea4498407494c82459bfdfc3b9ff7ef"
+    },
+    {
+      "id": "music.positive-attitude-ice-cream-with-you-208fec1d",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-ice-cream-with-you-208fec1d.png",
+      "sha256": "f0501ca8f0ac916a31c4b1b722b7273f9c474c5b5b1abdc2b693e4a6e5090ddf"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-h-o-r-r-o-r-562f88c2",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-h-o-r-r-o-r-562f88c2.png",
+      "sha256": "50f8063e9e4418ae552593f7113c2673ab3709d2cfb9169fbebceb9559d87bfc"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-traveling-in-your-mind-ac21e403",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-traveling-in-your-mind-ac21e403.png",
+      "sha256": "3512bb881432246eab0fd3259b0dabfd93f6166fa3421cacd399cb9dd0348a90"
+    },
+    {
+      "id": "music.melodies-with-a-beat-love-they-b358d28a",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-love-they-b358d28a.png",
+      "sha256": "5cf42ef9adeb41fd9af37bade2cc70267bc6cb9f955a7f2aed0783499780b3ac"
+    },
+    {
+      "id": "music.incredible-kart-game-rock-n-roll-circuit-23370c8b",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-rock-n-roll-circuit-23370c8b.png",
+      "sha256": "897d77761c0e54fb915fa3693b891c364f21f807e6af483115363feef7079c23"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-fight-in-the-forest-81bda318",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-fight-in-the-forest-81bda318.png",
+      "sha256": "0934b71abc32a0502b055af1c05d96575b8fcce57d5ba7d6ab9265186e4a0324"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-two-faces-5505565f",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-two-faces-5505565f.png",
+      "sha256": "ff226db163d554b1a20a1a50e286c4aaca58e090d0fcaa3dceef7d17dc7675f6"
+    },
+    {
+      "id": "music.bleeps-and-bloops-bleep-bloop-on-loop-fd606493",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-bleep-bloop-on-loop-fd606493.png",
+      "sha256": "5b5b1356ae2bd3553b41a837ff1ee0cb6f970d9745c4b28914f229d67b1baa43"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-talk-to-me-a1dd8bce",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-talk-to-me-a1dd8bce.png",
+      "sha256": "4bd08b7d93a17e4b35d393c90839c2b09fd6d7718599ecfac9340c47e2f2acec"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-take-a-break-71d36fbc",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-take-a-break-71d36fbc.png",
+      "sha256": "bff68996f8d7dadeff9f76a50fb63831b41935e6e2b2c5dec19d5caf6d4ee969"
+    },
+    {
+      "id": "music.relaxing-ukulele-on-the-road-looking-at-your-feet-5cb629e7",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-on-the-road-looking-at-your-feet-5cb629e7.png",
+      "sha256": "9142273ddba48a6c5dda08ba78802d7a13cc51691d5487634eb90fbbe10bd21e"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-fear-of-being-mistaken-5368937e",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-fear-of-being-mistaken-5368937e.png",
+      "sha256": "3a52b2fa33b804034826f8414588e341be75f98c36beca8fb8e3fc4106289fa5"
+    },
+    {
+      "id": "music.hyper-metal-giga-metal-15af221d",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-giga-metal-15af221d.png",
+      "sha256": "78d9800799934ff7274ab3c3d1791e5e815ea90fc3d6d65a23e367d33e6fcf9f"
+    },
+    {
+      "id": "music.positive-attitude-street-of-love-44391e68",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-street-of-love-44391e68.png",
+      "sha256": "8c42fcdd837775952006238b52f9b6599ff655301991fe6a7743085999821e26"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-terrible-4c249955",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-terrible-4c249955.png",
+      "sha256": "897c7ed0ba88c190982436ac48635d5598d44ad15c4d147ac45b340382b47ca0"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-people-are-spinning-0648bd0a",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-people-are-spinning-0648bd0a.png",
+      "sha256": "09ec851911db0e374069f32cada861bc6d1cd1b90fcfb4ec50a6adc10eedb74a"
+    },
+    {
+      "id": "music.melodies-with-a-beat-softly-4dc9f017",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-softly-4dc9f017.png",
+      "sha256": "c2d7f9da0e3085d4338428c3210073fee38bbf10d521db8aaa57c9fcad4669f1"
+    },
+    {
+      "id": "music.incredible-kart-game-metal-circuit-55852d5a",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-metal-circuit-55852d5a.png",
+      "sha256": "2085b5a8152635d1316952d44da44a5d0037d37768fb258420f7d28eb61ad614"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-a-little-boss-fight-for-the-road-65186d53",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-a-little-boss-fight-for-the-road-65186d53.png",
+      "sha256": "4e9bbbb752ba7f58119f2490360b324cc2558f0c245fbe0885340896eb98b7e4"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-trust-and-doubt-12ef18e6",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-trust-and-doubt-12ef18e6.png",
+      "sha256": "a5e5db0fb74cbd068eb81a55a149be7c0f428dc7224a4e7a68687d6eb2530c93"
+    },
+    {
+      "id": "music.bleeps-and-bloops-happy-in-my-bleep-bloop-33a483c1",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-happy-in-my-bleep-bloop-33a483c1.png",
+      "sha256": "7c9383a53bde1f181ba0785153a6d9c41aee1308d995297ae9746feddb3cdd00"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-don-t-listen-to-the-words-they-say-ac2663fd",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-don-t-listen-to-the-words-they-say-ac2663fd.png",
+      "sha256": "efd5110c66527e2109d815e8696c39c15fd26f35248f307d52575d577d6f30b0"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-sweat-time-7937adac",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-sweat-time-7937adac.png",
+      "sha256": "5853506d3152ec00c7a1f499be61f71b51a70cc46c4c33f79906dd94bff4fc39"
+    },
+    {
+      "id": "music.relaxing-ukulele-floating-temple-9a8a95a9",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-floating-temple-9a8a95a9.png",
+      "sha256": "6d647406a51a18b8083298190e20f51b2e85e47590d8a0d16ada66d6fe330c4b"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-we-are-not-welcome-in-this-territory-41a55439",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-we-are-not-welcome-in-this-territory-41a55439.png",
+      "sha256": "e4d375cf4dbbe02fb005b96dbb448736558e9f280480d02c37f6dfa96c126d04"
+    },
+    {
+      "id": "music.hyper-metal-ultimate-metal-e3493faa",
+      "theme": "rock",
+      "file": "thumbnails/music.hyper-metal-ultimate-metal-e3493faa.png",
+      "sha256": "22e1b794b31825828457d6463d67176523adc41537af4100865db55987d21a0c"
+    },
+    {
+      "id": "music.positive-attitude-anarchobliss-e128673b",
+      "theme": "ambient",
+      "file": "thumbnails/music.positive-attitude-anarchobliss-e128673b.png",
+      "sha256": "0726a6b779bb5485cba4c2fe73f91e90454dfea564f95141a8ebab170116df33"
+    },
+    {
+      "id": "music.ambient-work-for-movies-and-games-vol-2-the-most-terribliest-229a71a9",
+      "theme": "dark",
+      "file": "thumbnails/music.ambient-work-for-movies-and-games-vol-2-the-most-terribliest-229a71a9.png",
+      "sha256": "3a1d5d0fb932fc8a9718c75e8a82c643afa257790a4944d970f655aaf4e3845f"
+    },
+    {
+      "id": "music.to-chill-and-stay-awake-monarch-of-the-street-4d145aeb",
+      "theme": "ambient",
+      "file": "thumbnails/music.to-chill-and-stay-awake-monarch-of-the-street-4d145aeb.png",
+      "sha256": "77ab8326854b84e15f2079b36a436659ec6d4c808f6d05755e31e20121571b82"
+    },
+    {
+      "id": "music.melodies-with-a-beat-sweet-me-d9ae69fc",
+      "theme": "jazz",
+      "file": "thumbnails/music.melodies-with-a-beat-sweet-me-d9ae69fc.png",
+      "sha256": "8b92ae3ab39205b4bb4b4883ec5d7addb372cfe9ae48eabfb051486a2ec81d3c"
+    },
+    {
+      "id": "music.incredible-kart-game-country-circuit-515d7cd6",
+      "theme": "playful",
+      "file": "thumbnails/music.incredible-kart-game-country-circuit-515d7cd6.png",
+      "sha256": "9d237de6ad954bda02c6109901bdc04ca31fb680fa904737d445431f6ede8bd3"
+    },
+    {
+      "id": "music.a-tale-is-never-forgotten-the-subject-of-everything-15c2e8b6",
+      "theme": "acoustic",
+      "file": "thumbnails/music.a-tale-is-never-forgotten-the-subject-of-everything-15c2e8b6.png",
+      "sha256": "38ed71608aae88deb7105d0c85f16580d18e698b65c3c096990f3f74bcbbb5c0"
+    },
+    {
+      "id": "music.lofi-guitar-ambiences-street-at-night-d89fb36a",
+      "theme": "ambient",
+      "file": "thumbnails/music.lofi-guitar-ambiences-street-at-night-d89fb36a.png",
+      "sha256": "0c639a075c70709cd5f2387cedc3b3c62c643230bd736fdb314d37b23069faeb"
+    },
+    {
+      "id": "music.bleeps-and-bloops-i-want-the-bleep-bloop-right-now-42f1fdfc",
+      "theme": "electronic",
+      "file": "thumbnails/music.bleeps-and-bloops-i-want-the-bleep-bloop-right-now-42f1fdfc.png",
+      "sha256": "9f707e13a89d52c98d3288d819ab0be4ee7ff2fb721c2692d15c8fc552524c79"
+    },
+    {
+      "id": "music.instrumental-rb-beats-to-sing-or-rap-on-i-care-b2c860a8",
+      "theme": "jazz",
+      "file": "thumbnails/music.instrumental-rb-beats-to-sing-or-rap-on-i-care-b2c860a8.png",
+      "sha256": "7bccc0c66fdd1607fce4cb65dd4d34ba07da3d22bc8b563ff733127558f1016a"
+    },
+    {
+      "id": "music.roller-disco-dance-dance-last-energy-for-the-day-1432f8a7",
+      "theme": "electronic",
+      "file": "thumbnails/music.roller-disco-dance-dance-last-energy-for-the-day-1432f8a7.png",
+      "sha256": "3f18981052eb26dfe4d2c17aa7ff5674583acdaf41661fde2a12f4473f6b3760"
+    },
+    {
+      "id": "music.relaxing-ukulele-hop-b666f200",
+      "theme": "acoustic",
+      "file": "thumbnails/music.relaxing-ukulele-hop-b666f200.png",
+      "sha256": "df84b6baeec23a5ec34e94bee1b34f0944ace099f4a7acf46e856762948b20b8"
+    },
+    {
+      "id": "music.the-adventure-goes-on-vol-1-is-it-sand-or-is-it-snow-i-m-lost-into-7b3838ab",
+      "theme": "acoustic",
+      "file": "thumbnails/music.the-adventure-goes-on-vol-1-is-it-sand-or-is-it-snow-i-m-lost-into-7b3838ab.png",
+      "sha256": "e7bfa9bb342f519adb129fd285c16214bf1bb107f201a8c94af02003064a2855"
+    }
+  ]
+}

@@ -1,0 +1,1130 @@
+{
+  "version": 2,
+  "rendererSha256": "3df0ba7be5c35473be5e30a9cebc1d4163878eda32e205f7bf86c702f6deca01",
+  "generatorSha256": "94251315a4a4db7e9575152b5c75ecb5922e6ecab32bf40767c4617aaf0615ef",
+  "encoderSha256": "b50ed5805ff2d938b6b243f0d5a44a8bfe9218e2cafec54d596bacfd0bc58549",
+  "sampleText": "example",
+  "entries": [
+    {
+      "presetId": "effect.black-white",
+      "kind": "effect",
+      "name": "黑白",
+      "fileName": "effect.black-white.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {},
+      "sha256": "8749bfee49f194af901fa5c37ef33aaa2290537203a0c946948e45b94dee7167"
+    },
+    {
+      "presetId": "effect.blur",
+      "kind": "effect",
+      "name": "模糊",
+      "fileName": "effect.blur.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 5
+      },
+      "sha256": "17d54c36d8a74556e0609231d81d7ad1627dcab34af9643f5ba58671235f8d15"
+    },
+    {
+      "presetId": "effect.brightness",
+      "kind": "effect",
+      "name": "亮度",
+      "fileName": "effect.brightness.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.12
+      },
+      "sha256": "5737383f46e1dcbe2bd61da74f9b5702ee2a14976f7fb779cc5c7e855af3dcf9"
+    },
+    {
+      "presetId": "effect.chromatic",
+      "kind": "effect",
+      "name": "色差",
+      "fileName": "effect.chromatic.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 5
+      },
+      "sha256": "d301330e9121c6dbaca4860f46fe1d999e6fd3e0b06ae234e549f29036d5db6c"
+    },
+    {
+      "presetId": "effect.cinematic",
+      "kind": "effect",
+      "name": "电影感",
+      "fileName": "effect.cinematic.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 1.35
+      },
+      "sha256": "42fdd55d7d95baaddff1c6165c02f1996630ea6b8b7c1dfce2eb52bc8ba4776e"
+    },
+    {
+      "presetId": "effect.color-pop",
+      "kind": "effect",
+      "name": "色彩突出",
+      "fileName": "effect.color-pop.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 1.6
+      },
+      "sha256": "c5e1a568b31b6e0110d278198d455673ac59c8c7a267bf5df1f5c47290413772"
+    },
+    {
+      "presetId": "effect.contrast",
+      "kind": "effect",
+      "name": "对比度",
+      "fileName": "effect.contrast.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 1.3
+      },
+      "sha256": "2b56bb69a3bfb9957fb6437728ad1eb926402d9efc5115ad7ddb8413f2061b7c"
+    },
+    {
+      "presetId": "effect.curves",
+      "kind": "effect",
+      "name": "色彩曲线",
+      "fileName": "effect.curves.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "shadows": 0,
+        "midtones": 0,
+        "highlights": 0
+      },
+      "sha256": "d375a8639be22e5a29d2f39755b4a344d9bcfb83991b92ccd77d598ad7bbe6cd"
+    },
+    {
+      "presetId": "effect.dream",
+      "kind": "effect",
+      "name": "梦幻柔光",
+      "fileName": "effect.dream.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 3
+      },
+      "sha256": "c59f3d4b12d1b0736a8826a8974369cf42823ef113257c96d88e61072fb8de98"
+    },
+    {
+      "presetId": "effect.exposure",
+      "kind": "effect",
+      "name": "曝光",
+      "fileName": "effect.exposure.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.25
+      },
+      "sha256": "36671d9bc1cccb716809d190f002d60a2ce1e25d55153ec660210831aa434a4e"
+    },
+    {
+      "presetId": "effect.glitch",
+      "kind": "effect",
+      "name": "故障闪烁",
+      "fileName": "effect.glitch.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 5
+      },
+      "sha256": "feea03311de2da9877d5b185a8d5d7d2118a5b9869cfedac7e61ab43a71827d2"
+    },
+    {
+      "presetId": "effect.glow",
+      "kind": "effect",
+      "name": "柔光",
+      "fileName": "effect.glow.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 2,
+        "radius": 8
+      },
+      "sha256": "b67ebc0c93184a76114baaecf1427620c8859352c826100e59c46d0481a6a460"
+    },
+    {
+      "presetId": "effect.grain",
+      "kind": "effect",
+      "name": "胶片颗粒",
+      "fileName": "effect.grain.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 12
+      },
+      "sha256": "539c22106506c9727382d8a3dcd77c1284df2fed9fc0b53f7c093c2c1b959b8d"
+    },
+    {
+      "presetId": "effect.highlights",
+      "kind": "effect",
+      "name": "高光",
+      "fileName": "effect.highlights.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": -0.2
+      },
+      "sha256": "a27862ef02fd1c94367c5f51ed3e7cba354b78b35e846365bee30835a2055731"
+    },
+    {
+      "presetId": "effect.hsl",
+      "kind": "effect",
+      "name": "局部选色",
+      "fileName": "effect.hsl.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "hue": 0,
+        "saturation": 1,
+        "target": 0,
+        "range": 45
+      },
+      "sha256": "76e349f6ec5b85aacefe08cb44961dbcbd1e0352a6e13a608382300146768a12"
+    },
+    {
+      "presetId": "effect.invert",
+      "kind": "effect",
+      "name": "反相",
+      "fileName": "effect.invert.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {},
+      "sha256": "85a6613fbf78c17e7f370de3ecd51fc34bace8cbfed9d2e0eb75e7cd1d23e290"
+    },
+    {
+      "presetId": "effect.kaleidoscope",
+      "kind": "effect",
+      "name": "万花筒",
+      "fileName": "effect.kaleidoscope.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {},
+      "sha256": "2dbb095ec89f95b81ba88afb3215597513e8bf170f6ca6f02d81e8a0af828016"
+    },
+    {
+      "presetId": "effect.key",
+      "kind": "effect",
+      "name": "色度键控",
+      "fileName": "effect.key.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "similarity": 0.12,
+        "feather": 0.04
+      },
+      "sha256": "47bf369295880fd3b757eda9d49cde992a74ae71c308d926fce2a78beab84438"
+    },
+    {
+      "presetId": "effect.lut",
+      "kind": "effect",
+      "name": "3D LUT",
+      "fileName": "effect.lut.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "strength": 1
+      },
+      "sha256": "76e349f6ec5b85aacefe08cb44961dbcbd1e0352a6e13a608382300146768a12"
+    },
+    {
+      "presetId": "effect.mirror",
+      "kind": "effect",
+      "name": "镜像",
+      "fileName": "effect.mirror.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {},
+      "sha256": "b101c9d65983b9e0cc58f3fea316d50dac4d3d1e00c19b16bd6a65dd1be33992"
+    },
+    {
+      "presetId": "effect.mosaic",
+      "kind": "effect",
+      "name": "马赛克",
+      "fileName": "effect.mosaic.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "block": 16
+      },
+      "sha256": "999d52061080fbcc0d31b8ae268738268782535a2bf1e4fef89dc285df406ccf"
+    },
+    {
+      "presetId": "effect.motion-blur",
+      "kind": "effect",
+      "name": "运动模糊",
+      "fileName": "effect.motion-blur.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 2
+      },
+      "sha256": "76e349f6ec5b85aacefe08cb44961dbcbd1e0352a6e13a608382300146768a12"
+    },
+    {
+      "presetId": "effect.noise",
+      "kind": "effect",
+      "name": "噪点",
+      "fileName": "effect.noise.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 25
+      },
+      "sha256": "72ac2a35d8bbd72ea9d028b8a5b0f9ef4d389e24c725bbb3d8bf360a89b3cfd8"
+    },
+    {
+      "presetId": "effect.posterize",
+      "kind": "effect",
+      "name": "色阶分离",
+      "fileName": "effect.posterize.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "levels": 16
+      },
+      "sha256": "7df292fc0c4d4400521f81dfaa233f3e3aba0c906512b31c92744acf1b53e16d"
+    },
+    {
+      "presetId": "effect.saturation",
+      "kind": "effect",
+      "name": "饱和度",
+      "fileName": "effect.saturation.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 1.4
+      },
+      "sha256": "f3f1ec9f95ec17916380263ab533c978ba651dd603cd3791334081ec80a81733"
+    },
+    {
+      "presetId": "effect.sepia",
+      "kind": "effect",
+      "name": "复古褐色",
+      "fileName": "effect.sepia.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {},
+      "sha256": "0817720512d8a951bbca5e1e506d6ebf82d59345a3a1bbd7628aeaa5c0d04976"
+    },
+    {
+      "presetId": "effect.shadows",
+      "kind": "effect",
+      "name": "阴影",
+      "fileName": "effect.shadows.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.25
+      },
+      "sha256": "43d35c1c258a2218e6d3980bce376746cc53410d48ded78cf350302b12e6ee1d"
+    },
+    {
+      "presetId": "effect.sharpen",
+      "kind": "effect",
+      "name": "锐化",
+      "fileName": "effect.sharpen.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 1.2
+      },
+      "sha256": "b14e780fa89e4cb512049689ca5cbc83664e98e236656c6a5c1d13d98c27fa04"
+    },
+    {
+      "presetId": "effect.soft-focus",
+      "kind": "effect",
+      "name": "柔焦",
+      "fileName": "effect.soft-focus.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 3
+      },
+      "sha256": "c59f3d4b12d1b0736a8826a8974369cf42823ef113257c96d88e61072fb8de98"
+    },
+    {
+      "presetId": "effect.teal-orange",
+      "kind": "effect",
+      "name": "青橙电影",
+      "fileName": "effect.teal-orange.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.18
+      },
+      "sha256": "698cd41e92f171f095f35e263ab5ddea60c1d2ca06ab6e27150bb61ac3113947"
+    },
+    {
+      "presetId": "effect.temperature",
+      "kind": "effect",
+      "name": "色温",
+      "fileName": "effect.temperature.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.15
+      },
+      "sha256": "aa0d7a4897cbc0d324c9662241d3458d278fb2b6b4f812337c42e8d6f028e7ef"
+    },
+    {
+      "presetId": "effect.tint",
+      "kind": "effect",
+      "name": "色调",
+      "fileName": "effect.tint.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.1
+      },
+      "sha256": "2de4f71e86255e58add5ecab4d8aabe6bc04952bb4eec2db5d66d491ad5fbd75"
+    },
+    {
+      "presetId": "effect.vignette",
+      "kind": "effect",
+      "name": "暗角",
+      "fileName": "effect.vignette.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.25
+      },
+      "sha256": "3e1861f3f678cb82bb3115efbf3621fd00db77832a556fe01064a6172f47232e"
+    },
+    {
+      "presetId": "effect.vintage",
+      "kind": "effect",
+      "name": "复古胶片",
+      "fileName": "effect.vintage.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "amount": 0.75,
+        "grain": 18
+      },
+      "sha256": "89a5cac589c132c631b9e47042b58ce56e04c2b653c9fef511ab0ebce52e2268"
+    },
+    {
+      "presetId": "effect.wheels",
+      "kind": "effect",
+      "name": "色轮",
+      "fileName": "effect.wheels.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 0,
+      "intensityPercent": 100,
+      "authoredParameters": {
+        "shadowRed": 0,
+        "shadowBlue": 0,
+        "highlightRed": 0,
+        "highlightBlue": 0
+      },
+      "sha256": "d375a8639be22e5a29d2f39755b4a344d9bcfb83991b92ccd77d598ad7bbe6cd"
+    },
+    {
+      "presetId": "title.basic",
+      "kind": "title",
+      "name": "基础文字",
+      "fileName": "title.basic.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "31385db667af5c223e570f026a019e8176f6f7d50b5d8092bc0aa6b9b7688ee0"
+    },
+    {
+      "presetId": "title.box-reveal",
+      "kind": "title",
+      "name": "圆角底板淡入",
+      "fileName": "title.box-reveal.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "38cf1b2af5ea2258e324ee1abd3ea9254996412df232555e71896d4f6d50eeed"
+    },
+    {
+      "presetId": "title.callout",
+      "kind": "title",
+      "name": "标注底板",
+      "fileName": "title.callout.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "70ab0d4f1268bb724f8a090b14fa1de35185020f161ab77984d430a5a6abb828"
+    },
+    {
+      "presetId": "title.caption-bar",
+      "kind": "title",
+      "name": "字幕条",
+      "fileName": "title.caption-bar.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "7302fdbe626e20ecb83af64fcf126bf6845385eaf31f16276e765c004fe0f0d3"
+    },
+    {
+      "presetId": "title.clean-lower-third",
+      "kind": "title",
+      "name": "简洁滑入姓名条",
+      "fileName": "title.clean-lower-third.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "3bdb379a8e5fe6bc9520de797a9c43ef870b0dd3061f01aecfcbb1ed5e4c6a4c"
+    },
+    {
+      "presetId": "title.counter",
+      "kind": "title",
+      "name": "数字计数",
+      "fileName": "title.counter.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "a81d8da3408f229c647fe09c2aeb937f2d0d953fa63f46c47fede3f9e7b882a8"
+    },
+    {
+      "presetId": "title.crawl",
+      "kind": "title",
+      "name": "横向滚动字幕",
+      "fileName": "title.crawl.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "b26f7d493d726160b84c548076440f0eb23501d612989389660e91ffae826c07"
+    },
+    {
+      "presetId": "title.credits",
+      "kind": "title",
+      "name": "滚动片尾",
+      "fileName": "title.credits.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "6a6c0442982d049935175d802d60a6772b061a2004aec462deca7ec81ff1e6da"
+    },
+    {
+      "presetId": "title.date",
+      "kind": "title",
+      "name": "日期地点",
+      "fileName": "title.date.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "2861115350c4e236155ce98fd41b6391b35e009b2e96147774c53324a23c6399"
+    },
+    {
+      "presetId": "title.ending",
+      "kind": "title",
+      "name": "片尾字幕",
+      "fileName": "title.ending.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "fd72d9de866c193e0468fe30ce0b159752317db20fcc7ede20e85530c9910592"
+    },
+    {
+      "presetId": "title.fade",
+      "kind": "title",
+      "name": "淡入文字",
+      "fileName": "title.fade.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "6bcaa23389500d3abcd2d8b9ce5ecc49d477556dcc83489d21ada0fe22e6466f"
+    },
+    {
+      "presetId": "title.glow",
+      "kind": "title",
+      "name": "霓虹文字",
+      "fileName": "title.glow.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "bd5c0066284912a491d5c0c70423e5ecb19c1f9ee685db1118b5281a45b49132"
+    },
+    {
+      "presetId": "title.handwritten",
+      "kind": "title",
+      "name": "手写标题",
+      "fileName": "title.handwritten.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "addf5c2ce59182e1b562e3f11046e3d764c92cbbc32d3a2b1e2b0b7a471f46f1"
+    },
+    {
+      "presetId": "title.kinetic",
+      "kind": "title",
+      "name": "动感标题",
+      "fileName": "title.kinetic.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "db176fd56c4b9caf6a0c20e4d3efc07993131668ca83225fe5b9ae6aaacc0118"
+    },
+    {
+      "presetId": "title.lower-third",
+      "kind": "title",
+      "name": "人物介绍",
+      "fileName": "title.lower-third.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "75eaf694436727f6a4436b5a633de36724711d376970d4baf2611033f4da0f01"
+    },
+    {
+      "presetId": "title.modern",
+      "kind": "title",
+      "name": "现代标题",
+      "fileName": "title.modern.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "61fa5e27048279c2ee47baf7afb20c52928efc52dbbaba754c25301079f353ed"
+    },
+    {
+      "presetId": "title.opening",
+      "kind": "title",
+      "name": "大标题",
+      "fileName": "title.opening.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "0dcf0c690122ceac8cd71d2e6a0a3b5f374653593ffcebb38c71ba77f72c0877"
+    },
+    {
+      "presetId": "title.outline",
+      "kind": "title",
+      "name": "描边文字",
+      "fileName": "title.outline.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "6e514b07919e1b3ab233de3a6ee3761123444a400193967e38567abf91d0d177"
+    },
+    {
+      "presetId": "title.outline-pop",
+      "kind": "title",
+      "name": "粗描边弹跳标题",
+      "fileName": "title.outline-pop.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "8e8aa5de17c4e0baed84d0a68a3dbc4b2e8c5eb918be3fc9e192fb29ce361d5b"
+    },
+    {
+      "presetId": "title.pop",
+      "kind": "title",
+      "name": "弹跳文字",
+      "fileName": "title.pop.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "88c90bce789d34665a1084cc2e504b29453ee651ec616ba94de36d311b61229e"
+    },
+    {
+      "presetId": "title.quote",
+      "kind": "title",
+      "name": "引用卡片",
+      "fileName": "title.quote.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "d5e48783154f414a4ac523c67bcd95a2f14f1f2b07672bf7bf8f141560bc7e9e"
+    },
+    {
+      "presetId": "title.shadow",
+      "kind": "title",
+      "name": "阴影文字",
+      "fileName": "title.shadow.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "fee5a9612b3c6206aebadaf249adeddf16480eff50c5152137b8e1273ff3a418"
+    },
+    {
+      "presetId": "title.slide",
+      "kind": "title",
+      "name": "滑入文字",
+      "fileName": "title.slide.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "e7173e55100fd98f73da24b199c95237a44326ad506f28dcfa473e0cbb9c9f77"
+    },
+    {
+      "presetId": "title.social",
+      "kind": "title",
+      "name": "社交媒体标题",
+      "fileName": "title.social.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "b9caad543edb537baaa737d14fff1c2f3de2ba9b0a889dd16785adec977d0143"
+    },
+    {
+      "presetId": "title.subtitle",
+      "kind": "title",
+      "name": "标准字幕",
+      "fileName": "title.subtitle.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "f3b5a819d0ffd76d0bd4f7eef9e3aeb1569f3aae8eb8aa8e99160e18bb1137a3"
+    },
+    {
+      "presetId": "title.typewriter",
+      "kind": "title",
+      "name": "打字机",
+      "fileName": "title.typewriter.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "7c63be93069bef36095ecde9b959acbceec2cec6bd93b37f01105a17bc59dc81"
+    },
+    {
+      "presetId": "title.zoom",
+      "kind": "title",
+      "name": "缓慢缩放标题",
+      "fileName": "title.zoom.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "9322b2f8fe8abbf8f4792fe014c46764995ad1d1753053377d0a1ecdb582919c"
+    },
+    {
+      "presetId": "transition.blinds",
+      "kind": "transition",
+      "name": "百叶窗展开",
+      "fileName": "transition.blinds.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "7702bbb19dce2f81148828454949b74fdedd2f7820a0b5f7f19d9d5ea62ba153"
+    },
+    {
+      "presetId": "transition.blur",
+      "kind": "transition",
+      "name": "模糊切换",
+      "fileName": "transition.blur.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "5e45940f10841e40013c1313afbd3e8d380a6e92d484c1193c1cbbb0a04d06bf"
+    },
+    {
+      "presetId": "transition.blur-dissolve",
+      "kind": "transition",
+      "name": "模糊溶解",
+      "fileName": "transition.blur-dissolve.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "4a8902a433b5271943db4c1ad95c04d0860d7289cccc92b1384dc8e9fa4663cd"
+    },
+    {
+      "presetId": "transition.checker",
+      "kind": "transition",
+      "name": "棋盘格展开",
+      "fileName": "transition.checker.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "835e6411beb52f204402955edd96dae601089d8e7b8554f1190386b7615c09e8"
+    },
+    {
+      "presetId": "transition.circle",
+      "kind": "transition",
+      "name": "圆形展开",
+      "fileName": "transition.circle.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "969e0df919f41531e4f86fbf0ff819e58777234b46fd9bfef79ac807b435d615"
+    },
+    {
+      "presetId": "transition.circle-open",
+      "kind": "transition",
+      "name": "椭圆光圈展开",
+      "fileName": "transition.circle-open.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "835e7615922a6757bcbe7149cf81eddac156b93824b9d0243a404f5e4c4d9922"
+    },
+    {
+      "presetId": "transition.crossfade",
+      "kind": "transition",
+      "name": "交叉溶解",
+      "fileName": "transition.crossfade.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "c8f5ca1540233ee13c60b81cd89c13531ebd23ec6321cdbb15c804c4b15b7fb2"
+    },
+    {
+      "presetId": "transition.diagonal",
+      "kind": "transition",
+      "name": "斜向擦除",
+      "fileName": "transition.diagonal.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "a489934416c994f6f4bfcf20e281e360a5b4ab0f71aa63ea529d6d39e0a6d0bf"
+    },
+    {
+      "presetId": "transition.diamond",
+      "kind": "transition",
+      "name": "菱形展开",
+      "fileName": "transition.diamond.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "ec4b685549a9d1faffbb0ef936bb18870fc6a7e4948abdf830d155437f811e9f"
+    },
+    {
+      "presetId": "transition.dip-black",
+      "kind": "transition",
+      "name": "闪黑",
+      "fileName": "transition.dip-black.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "b33bfdd5688cdd1a08cea66eb7dd184a33e212a626d6a09f3acd5a09ce10c60c"
+    },
+    {
+      "presetId": "transition.dip-white",
+      "kind": "transition",
+      "name": "闪白",
+      "fileName": "transition.dip-white.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "72f95225c67f9a7175865191c448807e0ca72404cc80de14ea00465085207f7a"
+    },
+    {
+      "presetId": "transition.dissolve",
+      "kind": "transition",
+      "name": "柔和溶解",
+      "fileName": "transition.dissolve.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "457c832f3b57fc5dc4d318996dad52f98185e0afee013f239bffff0f20b5ee87"
+    },
+    {
+      "presetId": "transition.fade",
+      "kind": "transition",
+      "name": "淡入淡出",
+      "fileName": "transition.fade.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "228742a3432ebd76559c8a327545ac398a5eaa69f7dbe661e0d948127cc90266"
+    },
+    {
+      "presetId": "transition.film",
+      "kind": "transition",
+      "name": "胶片切换",
+      "fileName": "transition.film.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "8b3c7130051f031a1083bbebaf8dd695056742184673f63eb0505482e8013518"
+    },
+    {
+      "presetId": "transition.flash",
+      "kind": "transition",
+      "name": "闪光",
+      "fileName": "transition.flash.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "453013983803016ab5208140f0eae4274375f42668cba2828195b45dae9b83b2"
+    },
+    {
+      "presetId": "transition.glitch",
+      "kind": "transition",
+      "name": "故障切换",
+      "fileName": "transition.glitch.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "542a2e3ba93733841d89300c50b6a4d3f001c173b0910037a84a36f60854cba0"
+    },
+    {
+      "presetId": "transition.light-leak",
+      "kind": "transition",
+      "name": "漏光",
+      "fileName": "transition.light-leak.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "ad192134b1e92469ddc43c307bbe8dd3c1d21e37e595b938698935f126b29d6f"
+    },
+    {
+      "presetId": "transition.luma",
+      "kind": "transition",
+      "name": "亮度遮罩溶解",
+      "fileName": "transition.luma.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "2af6543a8e5763acabd109f803f574ad29c4e4a44a4bee89b1043fac76fce49c"
+    },
+    {
+      "presetId": "transition.page",
+      "kind": "transition",
+      "name": "二维折页",
+      "fileName": "transition.page.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "3b44356cb331709dad7abe0bbd8358c24d0dcc393137beb76372c38c8fa13cb0"
+    },
+    {
+      "presetId": "transition.pixelize",
+      "kind": "transition",
+      "name": "像素块溶解",
+      "fileName": "transition.pixelize.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "2807dbe3bd5a60e716cc5548de5f416845e361c51de04c78b8483525dac6afaf"
+    },
+    {
+      "presetId": "transition.push-down",
+      "kind": "transition",
+      "name": "下推",
+      "fileName": "transition.push-down.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "4411b9daf224cc2e18558c270abc9d95cd1f9cbeaea680586e89951f98ab8ed0"
+    },
+    {
+      "presetId": "transition.push-up",
+      "kind": "transition",
+      "name": "上推",
+      "fileName": "transition.push-up.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "96a36913ea1f01aa8fecb84a35e950934ac39c1aa1ec90bec4d0fb9fa878e45e"
+    },
+    {
+      "presetId": "transition.radial",
+      "kind": "transition",
+      "name": "时钟扫描",
+      "fileName": "transition.radial.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "98a4b8516b0c16f079c5eeabc6def15f81175a267a3592eb8f4aec1250b7b299"
+    },
+    {
+      "presetId": "transition.rotate",
+      "kind": "transition",
+      "name": "旋转开场",
+      "fileName": "transition.rotate.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "5d98b07245605511994cf35d99674ab9c38c158ff6239f3ef3e4914751cbc20a"
+    },
+    {
+      "presetId": "transition.shake",
+      "kind": "transition",
+      "name": "轻微抖动",
+      "fileName": "transition.shake.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "a480bcb8fc1bba0eed150040fb81d83e47fc0d00adc90829f2ddeaf08a9e8fd3"
+    },
+    {
+      "presetId": "transition.slide-left",
+      "kind": "transition",
+      "name": "左滑",
+      "fileName": "transition.slide-left.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "3d2a39d8b070edf92f6ec3992291a02793fbb0065594ad311a9ef33ea7b34779"
+    },
+    {
+      "presetId": "transition.slide-right",
+      "kind": "transition",
+      "name": "右滑",
+      "fileName": "transition.slide-right.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "2af3adbb677158ff4f4d862230846a70bd64988f58114901c087c0021a7c4bf1"
+    },
+    {
+      "presetId": "transition.spin",
+      "kind": "transition",
+      "name": "旋转切换",
+      "fileName": "transition.spin.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "4affe8bc14ce9e21ca10fc0743b1d5706916d18145247003ff7bfe3a5f1073d3"
+    },
+    {
+      "presetId": "transition.split",
+      "kind": "transition",
+      "name": "分屏切换",
+      "fileName": "transition.split.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "7e1a3b55a2b7ed6936d78b43cb51d4b69f2fdc5d761f7f8cd51ff6a732217dbc"
+    },
+    {
+      "presetId": "transition.wipe-down",
+      "kind": "transition",
+      "name": "向下擦除",
+      "fileName": "transition.wipe-down.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "88cddfd8c7f52583af7d6f27445f67c4730261a2e1cf169741cb859457f945b2"
+    },
+    {
+      "presetId": "transition.wipe-left",
+      "kind": "transition",
+      "name": "向左擦除",
+      "fileName": "transition.wipe-left.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "0c591dbc57133505b07ea02efc925c90c28e71bda3e6e8198599c52994969f1e"
+    },
+    {
+      "presetId": "transition.wipe-right",
+      "kind": "transition",
+      "name": "向右擦除",
+      "fileName": "transition.wipe-right.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "a610422e6fcd513c249d95970e9c597235cc698440d3f068b005aa136a096b50"
+    },
+    {
+      "presetId": "transition.wipe-up",
+      "kind": "transition",
+      "name": "向上擦除",
+      "fileName": "transition.wipe-up.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "f49dbee5542f3f24a2a90d4ece90fb7ea82f38ad16196a1e811fa5177b903fd8"
+    },
+    {
+      "presetId": "transition.zoom",
+      "kind": "transition",
+      "name": "动态缩放",
+      "fileName": "transition.zoom.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "1659d6525beda43ee684e7624a8c7447afe4bcef7c49664c7d31c69dc0f40edb"
+    },
+    {
+      "presetId": "transition.zoom-in",
+      "kind": "transition",
+      "name": "放大切换",
+      "fileName": "transition.zoom-in.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "e9848ba7f0285d70df48bad48b5c3c81953fe472c642326fc5e8594e7651a531"
+    },
+    {
+      "presetId": "transition.zoom-out",
+      "kind": "transition",
+      "name": "缩小切换",
+      "fileName": "transition.zoom-out.jpg",
+      "width": 960,
+      "height": 540,
+      "sampleTimeSeconds": 2.5,
+      "sha256": "2ff5e63d676a5b0047c64bd4d73043078ac45fd7a19e1ff22c2bfd25b236be21"
+    }
+  ]
+}

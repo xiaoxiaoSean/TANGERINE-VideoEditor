@@ -21,7 +21,7 @@ public partial class MainWindow
         if (_selectedTrack?.IsLocked != false)
         { StatusText.Text = "轨道已锁定，无法修改速度"; return; }
         if (clip.MulticamGroupId is not null)
-        { StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT"; return; }
+        { StatusText.Text = "多机位切段需保持原速 · MLCAM0901"; return; }
         var dialog = new Window
         {
             Title = $"时间重映射 · {clip.Name}", Owner = this,
@@ -93,7 +93,7 @@ public partial class MainWindow
         {
             if (!_project.Tracks.Any(track => !track.IsLocked && track.Clips.Contains(clip)))
             {
-                StatusText.Text = "片段或轨道已变化 · EDIT-REMAP-STATE";
+                StatusText.Text = "片段或轨道已变化 · TMLNE0120";
                 return;
             }
             if (!double.TryParse(time.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double at) ||
@@ -101,7 +101,7 @@ public partial class MainWindow
                 !double.TryParse(speed.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double rate) ||
                 !double.IsFinite(rate) || rate < .05 || rate > 32)
             {
-                MessageBox.Show(dialog, "时间需在片段内部，速度需在 0.05 至 32 倍之间。\n阶段代码：EDIT-REMAP-VALUE",
+                MessageBox.Show(dialog, "时间需在片段内部，速度需在 0.05 至 32 倍之间。\n阶段代码：TMLNE0121",
                     "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -110,14 +110,14 @@ public partial class MainWindow
             // inside the validation tolerance must be rejected.
             if (clip.TimeRemapPoints.Count(point => Math.Abs(point.TimeSeconds - at) < .0001) > 1)
             {
-                StatusText.Text = "速度节点重叠 · EDIT-REMAP-DUPLICATE";
+                StatusText.Text = "速度节点重叠 · TMLNE0122";
                 return;
             }
             ClipTimeRemapPoint? selectedPoint = (list.SelectedItem as TimeRemapRow)?.Point;
             if (selectedPoint is not null && clip.TimeRemapPoints.Any(point =>
                 !ReferenceEquals(point, selectedPoint) && Math.Abs(point.TimeSeconds - at) < .0001))
             {
-                StatusText.Text = "目标时间已有速度节点 · EDIT-REMAP-DUPLICATE";
+                StatusText.Text = "目标时间已有速度节点 · TMLNE0122";
                 return;
             }
             var proposed = new TimelineClip
@@ -146,7 +146,7 @@ public partial class MainWindow
             if (ordered.Zip(ordered.Skip(1), (left, right) =>
                     right.TimeSeconds - left.TimeSeconds).Any(gap => gap < .000001))
             {
-                StatusText.Text = "速度节点过近 · EDIT-REMAP-DUPLICATE";
+                StatusText.Text = "速度节点过近 · TMLNE0122";
                 return;
             }
             MediaAsset? source = _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
@@ -154,12 +154,12 @@ public partial class MainWindow
             if (source?.DurationSeconds is double available &&
                 proposed.SourceInSeconds + sourceSpan > available + .001)
             {
-                StatusText.Text = "速度节点超出源素材范围 · EDIT-REMAP-SOURCE";
+                StatusText.Text = "速度节点超出源素材范围 · TMLNE0123";
                 return;
             }
             if (!double.IsFinite(sourceSpan))
             {
-                StatusText.Text = "速度节点时间映射无效 · EDIT-REMAP-SOURCE";
+                StatusText.Text = "速度节点时间映射无效 · TMLNE0123";
                 return;
             }
             SaveUndoState();

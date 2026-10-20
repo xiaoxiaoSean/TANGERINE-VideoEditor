@@ -1,4 +1,4 @@
-﻿using System.Windows.Media;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using TANGERINE_VideoEditor.Editor;
 using TANGERINE_VideoEditor.Project;
@@ -46,7 +46,7 @@ public partial class MainWindow
             try { _waveformWindows[key] = await AudioPeakCache.GetAsync(asset.EffectiveExportPath, clip.SourceAudioStreamIndex, window, _experienceLifetime.Token);
                 _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(DrawTimeline)); }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { _waveformFailed.Add(key); System.Diagnostics.Debug.WriteLine($"WAVEFORM-DECODE: {ex}"); }
+            catch (Exception ex) { _waveformFailed.Add(key); System.Diagnostics.Debug.WriteLine($"WAVFM0001: {ex}"); }
             finally { _waveformPending.Remove(key); }
         }
     }

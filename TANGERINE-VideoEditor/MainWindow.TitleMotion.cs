@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -31,6 +31,8 @@ public partial class MainWindow
         };
         var body = new StackPanel();
         section.Child = body;
+        bool CanEdit() => section.IsLoaded && section.IsVisible && IsCurrentEditableClip(clip) &&
+            ReferenceEquals(clip.Text, style);
         body.Children.Add(new TextBlock { Text = $"动画参数 · {presetName}", FontSize = 14,
             FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 4) });
         var summary = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brush("#C5CAD4"),
@@ -103,10 +105,11 @@ public partial class MainWindow
             box.ToolTip = tip;
             void Commit()
             {
+                if (!CanEdit()) return;
                 if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
                     !double.IsFinite(value) || value < minimum || value > maximum)
                 {
-                    StatusText.Text = $"“{label}”须在 {Show(minimum)} 到 {Show(maximum)} 之间 · TEXT-MOTION-RANGE";
+                    StatusText.Text = $"“{label}”须在 {Show(minimum)} 到 {Show(maximum)} 之间 · TITLE0003";
                     box.Text = Show(accepted);
                     return;
                 }
@@ -139,6 +142,7 @@ public partial class MainWindow
             };
             choice.SelectionChanged += (_, _) =>
             {
+                if (!CanEdit()) return;
                 if (choice.SelectedIndex < 0) return;
                 string chosen = ids[choice.SelectedIndex];
                 if (chosen == current) return;
@@ -178,6 +182,7 @@ public partial class MainWindow
                 string acceptedDecimals = decimals.Text;
                 void CommitDecimals()
                 {
+                    if (!CanEdit()) return;
                     string text = decimals.Text.Trim();
                     if (text == acceptedDecimals) return;
                     int? chosen = null;
@@ -186,7 +191,7 @@ public partial class MainWindow
                         if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out int parsed) ||
                             parsed is < 0 or > 6)
                         {
-                            StatusText.Text = "小数位数须是 0 到 6 的整数，或留空 · TEXT-MOTION-RANGE";
+                            StatusText.Text = "小数位数须是 0 到 6 的整数，或留空 · TITLE0003";
                             decimals.Text = acceptedDecimals;
                             return;
                         }
@@ -273,6 +278,7 @@ public partial class MainWindow
         };
         reset.Click += (_, _) =>
         {
+            if (!CanEdit()) return;
             captureUndo();
             style.Motion = DynamicTitlePreset.DefaultMotionFor(clip.TemplateId);
             Applied("已恢复默认动画参数");

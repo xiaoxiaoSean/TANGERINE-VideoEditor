@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -53,7 +53,7 @@ public partial class MainWindow
 
     private void ApplyMediaView()
     {
-        bool media = CategoryList.SelectedIndex == 0;
+        bool media = CategoryList.SelectedIndex is 0 or 5;
         bool list = !media || MediaViewBox.SelectedIndex == 0;
         MediaViewBox.Visibility = media ? Visibility.Visible : Visibility.Collapsed;
         Grid.SetColumnSpan(AssetSearchBox, media ? 1 : 2);
@@ -73,26 +73,123 @@ public partial class MainWindow
     {
         foreach (LibraryItem item in AssetList.Items)
         {
-            if (item.Thumbnail is not null || _thumbnailLoads.Contains(item) || item.Source is not MediaAsset asset || asset.Kind == MediaKind.Audio) continue;
+            if (item.Thumbnail is not null || _thumbnailLoads.Contains(item)) continue;
             if (AssetList.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container || !container.IsVisible) continue;
             Rect bounds = container.TransformToAncestor(AssetList).TransformBounds(new Rect(container.RenderSize));
             if (bounds.Bottom < 0 || bounds.Top > AssetList.ActualHeight) continue;
-            _thumbnailLoads.Add(item); _ = LoadAsync(item, asset);
+            if (item.Source is MediaAsset asset && asset.Kind != MediaKind.Audio)
+            {
+                _thumbnailLoads.Add(item); _ = LoadAsync(item, asset);
+            }
+            else if (item.Source is BuiltinPreset preset)
+            {
+                _thumbnailLoads.Add(item); _ = LoadCatalogAsync(item, preset);
+            }
+            else if (item.Source is BuiltinMusicTrack music)
+            {
+                _thumbnailLoads.Add(item); _ = LoadMusicAsync(item, music);
+            }
+            else if (item.Source is MediaAsset audio && audio.Kind == MediaKind.Audio &&
+                audio.Metadata.TryGetValue("BuiltinMusicId", out string? musicId))
+            {
+                try
+                {
+                    if (BuiltinMusicCatalog.Find(musicId) is BuiltinMusicTrack bundled)
+                    {
+                        _thumbnailLoads.Add(item); _ = LoadMusicAsync(item, bundled);
+                    }
+                }
+                catch (Tools.StageException exception) { System.Diagnostics.Debug.WriteLine($"MUSIC0005: {exception}"); }
+            }
         }
         async Task LoadAsync(LibraryItem item, MediaAsset asset)
         {
-            try { item.SetThumbnail(await MediaThumbnailCache.GetAsync(asset, 0, _experienceLifetime.Token)); }
+            ProjectDocument owner = _project;
+            long generation = _projectGeneration;
+            string requestedPath = asset.EffectivePreviewPath;
+            try
+            {
+                BitmapSource thumbnail = await MediaThumbnailCache.GetAsync(asset, 0, _experienceLifetime.Token);
+                if (!_experienceLifetime.IsCancellationRequested && ReferenceEquals(owner, _project) &&
+                    generation == _projectGeneration && owner.Media.Contains(asset) &&
+                    AssetList.Items.Contains(item) && requestedPath == asset.EffectivePreviewPath)
+                    item.SetThumbnail(thumbnail);
+            }
             catch (OperationCanceledException) { }
-            catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"THUMBNAIL-LIBRARY: {exception}"); }
+            catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"THUMB0001: {exception}"); }
+            finally
+            {
+                _thumbnailLoads.Remove(item);
+                if (!_experienceLifetime.IsCancellationRequested && ReferenceEquals(owner, _project) &&
+                    generation == _projectGeneration && AssetList.Items.Contains(item) &&
+                    requestedPath != asset.EffectivePreviewPath)
+                    LoadLibraryThumbnails([item]);
+            }
+        }
+        async Task LoadCatalogAsync(LibraryItem item, BuiltinPreset preset)
+        {
+            try
+            {
+                System.Windows.Media.Imaging.BitmapSource? thumbnail = await Task.Run(
+                    () => LoadCatalogThumbnail(preset.Id), _experienceLifetime.Token);
+                if (_experienceLifetime.IsCancellationRequested || !AssetList.Items.Contains(item)) return;
+                if (thumbnail is not null) item.SetThumbnail(thumbnail);
+                else System.Diagnostics.Debug.WriteLine($"THUMB0003: 缺少内置缩略图 {preset.Id}");
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"THUMB0004: {preset.Id}: {exception}"); }
+            finally { _thumbnailLoads.Remove(item); }
+        }
+        async Task LoadMusicAsync(LibraryItem item, BuiltinMusicTrack music)
+        {
+            try
+            {
+                BitmapSource? thumbnail = await Task.Run(() => LoadBundledThumbnail(music.ThumbnailPath),
+                    _experienceLifetime.Token);
+                if (!_experienceLifetime.IsCancellationRequested && AssetList.Items.Contains(item) && thumbnail is not null)
+                    item.SetThumbnail(thumbnail);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"MUSIC0005: {music.Id}: {exception}"); }
             finally { _thumbnailLoads.Remove(item); }
         }
     }
 
+    private static System.Windows.Media.Imaging.BitmapSource? LoadCatalogThumbnail(string presetId)
+    {
+        string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "CatalogThumbnails", presetId + ".jpg");
+        return LoadBundledThumbnail(path);
+    }
+
+    private static BitmapSource? LoadBundledThumbnail(string path)
+    {
+        if (_bundledThumbnailCache.TryGetValue(path, out BitmapSource? cached)) return cached;
+        if (!System.IO.File.Exists(path)) return null;
+        using System.IO.FileStream stream = System.IO.File.OpenRead(path);
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.DecodePixelWidth = 240;
+        image.StreamSource = stream;
+        image.EndInit();
+        image.Freeze();
+        return _bundledThumbnailCache.GetOrAdd(path, image);
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, BitmapSource> _bundledThumbnailCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private void AddTimelineThumbnails(Border border, TimelineClip clip)
     {
-        if (clip.Kind is not (ClipKind.Image or ClipKind.Video)) return;
         MediaAsset? asset = _project.Media.FirstOrDefault(item => item.Id == clip.MediaAssetId);
         if (asset is null) return;
+        string? musicArtwork = null;
+        if (clip.Kind == ClipKind.Audio && asset.Metadata.TryGetValue("BuiltinMusicId", out string? musicId))
+        {
+            try { musicArtwork = BuiltinMusicCatalog.Find(musicId)?.ThumbnailPath; }
+            catch (Tools.StageException exception) { System.Diagnostics.Debug.WriteLine($"MUSIC0005: {exception}"); }
+        }
+        if (clip.Kind is not (ClipKind.Image or ClipKind.Video) && musicArtwork is null) return;
         var caption = (UIElement)border.Child; border.Child = null;
         if (caption is FrameworkElement text) text.Margin = new Thickness(TrackSpace * .08, 0, TrackSpace * .08, 0);
         var content = new Grid { ClipToBounds = true };
@@ -115,9 +212,21 @@ public partial class MainWindow
         }
         async Task LoadAsync(Image image, MediaAsset source, double seconds)
         {
-            try { image.Source = await MediaThumbnailCache.GetAsync(source, seconds, _experienceLifetime.Token); }
+            ProjectDocument owner = _project;
+            long generation = _projectGeneration;
+            string requestedPath = source.EffectivePreviewPath;
+            try
+            {
+                BitmapSource? thumbnail = musicArtwork is not null
+                    ? await Task.Run(() => LoadBundledThumbnail(musicArtwork), _experienceLifetime.Token)
+                    : await MediaThumbnailCache.GetAsync(source, seconds, _experienceLifetime.Token);
+                if (!_experienceLifetime.IsCancellationRequested && ReferenceEquals(owner, _project) &&
+                    generation == _projectGeneration && owner.Tracks.Any(track => track.Clips.Contains(clip)) &&
+                    clip.MediaAssetId == source.Id && owner.Media.Contains(source) && requestedPath == source.EffectivePreviewPath)
+                    image.Source = thumbnail;
+            }
             catch (OperationCanceledException) { }
-            catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"THUMBNAIL-TIMELINE: {exception}"); }
+            catch (Exception exception) { System.Diagnostics.Debug.WriteLine($"THUMB0002: {exception}"); }
         }
     }
 }

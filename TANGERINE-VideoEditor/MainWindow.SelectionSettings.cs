@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -13,7 +13,7 @@ public partial class MainWindow
     private void ShowSelectedObjectSettings()
     {
         TimelineClip? clip = _selectedClip;
-        if (clip is null)
+        if (clip is null || !_project.Tracks.Any(track => track.Clips.Contains(clip)))
         {
             CloseSettingsTabs();
             return;
@@ -42,7 +42,8 @@ public partial class MainWindow
             AddToolButton(tools, "均衡器 / 音量", () => OpenObjectToolPage(clip, "均衡器 / 音量", BuildAudioTool));
         AddToolButton(tools, "关键帧", () =>
         {
-            if (_selectedKeyframe is null) AddKeyframeAtPlayhead();
+            if (!IsCurrentEditableClip(clip)) return;
+            if (_selectedKeyframe is null || !clip.Keyframes.Contains(_selectedKeyframe)) AddKeyframeAtPlayhead();
             else OpenKeyframeSettingsTab(clip, _selectedTrack!, _selectedKeyframe);
         });
         // Effects, blend mode and masks act on the picture; an audio clip has none.
@@ -88,6 +89,8 @@ public partial class MainWindow
 
     private void OpenObjectToolPage(TimelineClip clip, string title, Func<TimelineClip, Action, UIElement> builder)
     {
+        if (!ReferenceEquals(_selectedClip, clip) ||
+            !_project.Tracks.Any(track => track.Clips.Contains(clip))) return;
         OpenSettingsCategory(title, builder(clip, () => ShowSelectedObjectSettings()));
         // Rebuild the same inspector with the current model after an external
         // edit; its old event handlers otherwise retain stale model objects.
@@ -154,9 +157,9 @@ public partial class MainWindow
         };
         apply.Click += (_, _) =>
         {
-            if (_project.Tracks.FirstOrDefault(track => track.Clips.Contains(clip)) is not { IsLocked: false })
+            if (!panel.IsLoaded || !panel.IsVisible || !IsCurrentEditableClip(clip))
             {
-                StatusText.Text = "轨道已锁定或片段已移除 · EDIT-SPEED-STATE";
+                StatusText.Text = "轨道已锁定或片段已移除 · TMLNE0113";
                 return;
             }
             if (!TryNumber(speedBox.Text, .05, 32, "播放速度", out double speed) ||
@@ -165,12 +168,12 @@ public partial class MainWindow
             if (source?.DurationSeconds is double sourceDuration &&
                 clip.SourceInSeconds + duration * speed > sourceDuration + .001)
             {
-                StatusText.Text = "变速后的片段超出源素材范围 · EDIT-SPEED-SOURCE";
+                StatusText.Text = "变速后的片段超出源素材范围 · TMLNE0115";
                 return;
             }
             if (clip.MulticamGroupId is not null && Math.Abs(speed - 1) > .000001)
             {
-                StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT";
+                StatusText.Text = "多机位切段需保持原速 · MLCAM0901";
                 return;
             }
             SaveUndoState();
@@ -217,7 +220,9 @@ public partial class MainWindow
         bool applying = false;
         bool ApplyValues(bool showErrors)
         {
-            if (applying) return false;
+            // Removing or replacing an inspector can raise focus events from
+            // its old fields. Such events may never edit the previous target.
+            if (applying || !panel.IsLoaded || !panel.IsVisible || !IsCurrentEditableClip(clip)) return false;
             if (!TryNumberQuiet(positionX.Text, -_project.Sequence.Width * 4, _project.Sequence.Width * 4, out double x) ||
                 !TryNumberQuiet(positionY.Text, -_project.Sequence.Height * 4, _project.Sequence.Height * 4, out double y) ||
                 !TryNumberQuiet(scaleX.Text, 5, 800, out double sx) || !TryNumberQuiet(scaleY.Text, 5, 800, out double sy) ||
@@ -262,6 +267,8 @@ public partial class MainWindow
                 var value = AddToolTextBox(panel, parameter.Name, current);
                 value.LostKeyboardFocus += (_, _) =>
                 {
+                    if (!panel.IsLoaded || !panel.IsVisible || !IsCurrentEditableClip(clip) ||
+                        !clip.Effects.Contains(effect)) return;
                     if (!TryNumberQuiet(value.Text, parameter.Minimum, parameter.Maximum, out double next)) return;
                     SaveUndoState(); VisualEffectPipeline.SetNumber(effect, parameter, next);
                     MarkProjectDirty(); SeekPreview(_project.Sequence.PlayheadSeconds);
@@ -298,7 +305,7 @@ public partial class MainWindow
         bool applying = false;
         bool ApplyAudio(bool showErrors)
         {
-            if (applying) return false;
+            if (applying || !panel.IsLoaded || !panel.IsVisible || !IsCurrentEditableClip(clip)) return false;
             if (!TryNumberQuiet(volume.Text, 0, 400, out double volumeValue) || !TryNumberQuiet(gain.Text, 0, 400, out double gainValue) ||
                 !TryNumberQuiet(pan.Text, -100, 100, out double panValue) || !TryNumberQuiet(eqHz.Text, 0, 20000, out double eqFrequency) ||
                 !TryNumberQuiet(eqGain.Text, -24, 24, out double eqDb) || !TryNumberQuiet(highPass.Text, 0, 20000, out double high) ||

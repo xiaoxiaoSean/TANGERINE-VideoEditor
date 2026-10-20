@@ -26,7 +26,7 @@ public partial class MainWindow
         }
         if (clip.Kind is not (ClipKind.Image or ClipKind.Video))
         {
-            StatusText.Text = "请先选择图片或视频片段 · VIS-TRANSFORM-KIND";
+            StatusText.Text = "请先选择图片或视频片段 · VISTR0001";
             return;
         }
         ProjectDocument dialogProject = _project;
@@ -113,7 +113,7 @@ public partial class MainWindow
         {
             if (!ReferenceEquals(dialogProject, _project) || dialogGeneration != _projectGeneration)
             {
-                StatusText.Text = "画面编辑已中止：项目已经切换 · VIS-TRANSFORM-STALE";
+                StatusText.Text = "画面编辑已中止：项目已经切换 · VISTR0002";
                 dialog.DialogResult = false;
                 return;
             }
@@ -137,7 +137,7 @@ public partial class MainWindow
                 !TryNumber(opacity.Text, 0, 100, "画面透明度", out double alpha)) return;
             if (left + right >= 100 || top + bottom >= 100)
             {
-                MessageBox.Show(this, "左右裁切之和、上下裁切之和都必须小于 100%。\n阶段代码：VIS-TRANSFORM-CROP", "裁切范围无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, "左右裁切之和、上下裁切之和都必须小于 100%。\n阶段代码：VISTR0003", "裁切范围无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             SaveUndoState();

@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -14,11 +14,12 @@ namespace TANGERINE_VideoEditor;
 /// </summary>
 public partial class MainWindow
 {
-    private readonly string[] _categories = ["媒体", "文字", "效果", "转场", "贴纸"];
+    private readonly string[] _categories = ["媒体", "文字", "效果", "转场", "贴纸", "内置音乐"];
     private int _lastLibraryCategory;
     private Point _libraryDragStart;
     private LibraryItem? _libraryPressedItem;
     private bool _libraryDragInProgress;
+    private bool _refreshingLibrary;
     private bool _catalogPreviewPending;
     private readonly SemaphoreSlim _mediaImportGate = new(1, 1);
     private readonly SemaphoreSlim _mediaProbeGate = new(2, 2);
@@ -26,6 +27,7 @@ public partial class MainWindow
 
     private void InitializeLibrary()
     {
+        InitializeBuiltinMusicPreview();
         CategoryList.ItemsSource = _categories;
         CategoryList.SelectionChanged += (_, _) =>
         {
@@ -45,6 +47,22 @@ public partial class MainWindow
         };
         CategoryList.SelectedIndex = 0;
         AssetSearchBox.TextChanged += (_, _) => RefreshLibrary();
+        AssetList.SelectionChanged += (_, _) =>
+        {
+            if (_refreshingLibrary) return;
+            // Selection invalidates playback immediately. Waiting for mouse-up
+            // left the old demo playing when capture/focus interrupted a click.
+            StopCatalogPreview();
+            if (_libraryPressedItem is not null || _libraryDragInProgress ||
+                AssetList.SelectedItem is not LibraryItem selected ||
+                selected.Source is not (BuiltinPreset or BuiltinMusicTrack)) return;
+            long generation = _catalogPreviewGeneration;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (generation == _catalogPreviewGeneration && ReferenceEquals(AssetList.SelectedItem, selected) &&
+                    _libraryPressedItem is null && !_libraryDragInProgress) PreviewSelectedCatalogItem();
+            }));
+        };
         AssetList.PreviewMouseLeftButtonDown += AssetList_PreviewMouseLeftButtonDown;
         AssetList.PreviewMouseMove += AssetList_PreviewMouseMove;
         AssetList.LostMouseCapture += (_, args) =>
@@ -52,18 +70,11 @@ public partial class MainWindow
             if (ReferenceEquals(args.OriginalSource, AssetList) && !AssetList.IsMouseCaptured && !_libraryDragInProgress) _libraryPressedItem = null;
         };
         AssetList.PreviewMouseLeftButtonUp += AssetList_PreviewMouseLeftButtonUp;
-        PreviewMediaElement.MediaEnded += (_, _) =>
+        Deactivated += (_, _) => { if (!_libraryDragInProgress) FinishLibraryDrag(); };
+        PreviewKeyDown += (_, args) =>
         {
-            bool wasCatalogPreview = _catalogPreviewActive;
-            if (wasCatalogPreview)
-            {
-                _catalogPreviewActive = false;
-                CatalogPlaybackBar.Visibility = Visibility.Collapsed;
-                StatusText.Text = "示例预览已结束";
-            }
-            // Keep ownership until the media element releases the file. Its
-            // last frame can remain open after MediaEnded on Windows; the next
-            // selection, category change or window close releases this lease.
+            if (args.Key == Key.Escape && _libraryPressedItem is not null)
+            { FinishLibraryDrag(); args.Handled = true; }
         };
         LibraryAddButton.Click += async (_, _) =>
         {
@@ -99,10 +110,13 @@ public partial class MainWindow
     private bool CompleteLibraryClick(Point point)
     {
         LibraryItem? pressed = _libraryPressedItem;
+        if (_libraryDragInProgress || pressed is null || !ReferenceEquals(pressed, LibraryItemAt(point)))
+        { FinishLibraryDrag(); return false; }
+        // Retain the press identity while SelectionChanged runs. A refresh may
+        // have replaced a ListBoxItem; it must not schedule a second preview.
+        AssetList.SelectedItem = pressed;
         _libraryPressedItem = null;
         if (AssetList.IsMouseCaptured) AssetList.ReleaseMouseCapture();
-        if (_libraryDragInProgress || pressed is null || !ReferenceEquals(pressed, LibraryItemAt(point))) return false;
-        AssetList.SelectedItem = pressed;
         // One completed click schedules one preview; selection changes do not
         // start a competing worker before mouse-up can distinguish a drag.
         PreviewSelectedCatalogItem();
@@ -130,6 +144,7 @@ public partial class MainWindow
             if (CategoryList.SelectedIndex == 0) OpenSelectedSourceMonitor();
             else AddSelectedLibraryItem();
         }
+        else if (!AssetList.CaptureMouse()) _libraryPressedItem = null;
         return true;
     }
 
@@ -141,11 +156,13 @@ public partial class MainWindow
         RemoveDropGhost();
     }
 
-    private void StopCatalogPreview()
+    private void StopCatalogPreview(bool restoreTimeline = true)
     {
+        bool hadMusicPreview = BuiltinMusicOwnsMonitor;
+        StopBuiltinMusicPreview(restoreTimeline: false);
         // Read before clearing: only a preview that actually took over the
         // monitor needs the timeline restored afterwards.
-        bool wasActive = _catalogPreviewActive || _catalogPreviewPending;
+        bool wasActive = hadMusicPreview || _catalogPreviewActive || _catalogPreviewPending || _catalogPreviewPath is not null;
         _catalogPreviewPending = false;
         Interlocked.Increment(ref _catalogPreviewGeneration);
         _catalogPreviewActive = false;
@@ -154,7 +171,9 @@ public partial class MainWindow
         CatalogPreviewService.StopPreview();
         if (_catalogPreviewPath is string path)
         {
+            PreviewMediaElement.Visibility = Visibility.Collapsed;
             PreviewMediaElement.Stop();
+            PreviewMediaElement.Close();
             PreviewMediaElement.Source = null;
             DeleteCatalogPlaybackFile(path);
         }
@@ -165,7 +184,7 @@ public partial class MainWindow
         CatalogPlaybackTime.Text = "00:00 / 00:00";
         // A demonstration hid the timeline's overlays and re-laid out the media
         // element. Rebuild both so the monitor returns to the real sequence.
-        if (wasActive)
+        if (wasActive && restoreTimeline)
         {
             _lastMediaTransformKey = null;
             _lastTitleLayoutKey = null;
@@ -177,10 +196,99 @@ public partial class MainWindow
     private void PreviewSelectedCatalogItem()
     {
         LibraryItem? selected = AssetList.SelectedItem as LibraryItem;
-        if (selected?.Source is not BuiltinPreset preset || selected.Category is not (1 or 2 or 3 or 5)) return;
+        if (selected?.Source is BuiltinMusicTrack music)
+        {
+            PreviewBuiltinMusic(music);
+            return;
+        }
+        if (selected?.Source is not BuiltinPreset preset || selected.Category is not (1 or 2 or 3 or 4)) return;
         int category = selected.Category;
-        StopCatalogPreview();
+        long generation = BeginCatalogPreviewRequest();
+        var owner = _project;
+        var sequence = _project.Sequence;
+        StatusText.Text = $"正在生成“{preset.Name}”示例预览…";
+        // The local source owns this request until its worker has fully drained.
+        // A cancelled Task.Run must still execute finally to dispose it.
+        var cancellation = new CancellationTokenSource();
+        _catalogPreviewCancellation = cancellation;
+        CancellationToken token = cancellation.Token;
+        bool IsCurrent() => !token.IsCancellationRequested && IsCurrentCatalogPreviewRequest(generation) &&
+            ReferenceEquals(owner, _project) && ReferenceEquals(sequence, _project.Sequence) &&
+            AssetList.SelectedItem is LibraryItem current && current.Id == preset.Id && current.Category == category;
+        const string sampleText = "example";
+        _ = Task.Run(async () =>
+        {
+            string? path = null;
+            bool handedToPlayer = false;
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                string ffmpeg = TimelineExporter.ResolveEncoderPath();
+                void Play(string generated) => path = generated;
+                void Progress(double value)
+                {
+                    _ = Dispatcher.InvokeAsync(() =>
+                    {
+                        if (!IsCurrent()) return;
+                        CatalogPreviewProgressBar.Value = Math.Clamp(value, 0, 100);
+                        PreviewMessage.Text = $"正在生成示例视频 {CatalogPreviewProgressBar.Value:0}%…";
+                    });
+                }
+                if (category == 3)
+                    await CatalogPreviewService.PlayTransitionPreviewAsync(preset.Id, ffmpeg, Play, token, Progress);
+                else if (category == 2)
+                    await CatalogPreviewService.PlayEffectPreviewAsync(preset.Id, ffmpeg, Play, token, Progress);
+                else if (category is 1 or 4)
+                    await CatalogPreviewService.PlayTextPreviewAsync(preset.Id, sampleText, ffmpeg,
+                        CreateTitleStyle, Play, token, Progress);
+                else
+                    throw new Tools.StageException("CATPV0004", "当前内置对象没有可播放的示例预览。");
+                token.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                    throw new Tools.StageException("CATPV0001", "示例预览未生成有效视频，请重新选择。");
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!IsCurrent()) return;
+                    PlayCatalogPreview(path);
+                    handedToPlayer = true;
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception exception)
+            {
+                if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!IsCurrent()) return;
+                    _catalogPreviewPending = false;
+                    CatalogPreviewProgressBar.Visibility = Visibility.Collapsed;
+                    PreviewMessage.Text = "示例预览生成失败";
+                    StatusText.Text = $"示例预览失败 · {Tools.StageCodes.Resolve(exception, "CATPV0002")}：{exception.Message}";
+                });
+            }
+            finally
+            {
+                if (!handedToPlayer && path is not null) DeleteCatalogPlaybackFile(path);
+                try
+                {
+                    if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            if (ReferenceEquals(_catalogPreviewCancellation, cancellation)) _catalogPreviewCancellation = null;
+                        });
+                }
+                catch (OperationCanceledException) { }
+                finally { cancellation.Dispose(); }
+            }
+        });
+    }
+
+    /// <summary>Transfers the monitor to one new catalog request before any background work starts.</summary>
+    private long BeginCatalogPreviewRequest()
+    {
+        StopCatalogPreview(restoreTimeline: false);
         if (_isPlaying) TogglePlayback();
+        StopAudioPreview();
         StopCachedPreview();
         ClearRenderedPreviewFrame();
         _previewImageRequest++;
@@ -188,8 +296,8 @@ public partial class MainWindow
         _previewSourcePath = null;
         _catalogPreviewPending = true;
         long generation = Interlocked.Increment(ref _catalogPreviewGeneration);
-        StatusText.Text = $"正在生成“{preset.Name}”示例预览…";
         PreviewMediaElement.Stop();
+        PreviewMediaElement.Close();
         PreviewMediaElement.Source = null;
         if (_catalogPreviewPath is string previousPath) DeleteCatalogPlaybackFile(previousPath);
         _catalogPreviewPath = null;
@@ -202,69 +310,11 @@ public partial class MainWindow
         PreviewMessage.Text = "正在生成示例视频…";
         CatalogPreviewProgressBar.Value = 0;
         CatalogPreviewProgressBar.Visibility = Visibility.Visible;
-        // Catalog demonstrations always use the fixed, easy-to-read sample
-        // word. They demonstrate the selected preset's visual style and
-        // animation, independent of any text clip currently on the timeline.
-        const string sampleText = "example";
-        _catalogPreviewCancellation = new CancellationTokenSource();
-        CancellationToken token = _catalogPreviewCancellation.Token;
-        string ffmpeg = TimelineExporter.ResolveEncoderPath();
-        _ = Task.Run(async () =>
-        {
-            string? path = null;
-            bool handedToPlayer = false;
-            try
-            {
-                void Play(string generated) => path = generated;
-                void Progress(double value)
-                {
-                    _ = Dispatcher.InvokeAsync(() =>
-                    {
-                        if (!token.IsCancellationRequested && generation == Volatile.Read(ref _catalogPreviewGeneration))
-                        {
-                            CatalogPreviewProgressBar.Value = Math.Clamp(value, 0, 100);
-                            PreviewMessage.Text = $"正在生成示例视频 {CatalogPreviewProgressBar.Value:0}%…";
-                        }
-                    });
-                }
-                if (category == 3)
-                    await CatalogPreviewService.PlayTransitionPreviewAsync(preset.Id, ffmpeg, Play, token, Progress);
-                else if (category is 2 or 5)
-                    await CatalogPreviewService.PlayEffectPreviewAsync(preset.Id, ffmpeg, Play, token, Progress);
-                else
-                    await CatalogPreviewService.PlayTextPreviewAsync(preset.Id, sampleText, ffmpeg,
-                        CreateTitleStyle, Play, token, Progress);
-                if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    if (!token.IsCancellationRequested && generation == Volatile.Read(ref _catalogPreviewGeneration))
-                    {
-                        PlayCatalogPreview(path);
-                        handedToPlayer = true;
-                    }
-                });
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception exception)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    if (token.IsCancellationRequested || generation != Volatile.Read(ref _catalogPreviewGeneration)) return;
-                    _catalogPreviewPending = false;
-                    CatalogPreviewProgressBar.Visibility = Visibility.Collapsed;
-                    PreviewMessage.Text = "示例预览生成失败";
-                    StatusText.Text = $"示例预览失败：{exception.Message}";
-                });
-            }
-            finally
-            {
-                // The service transfers a disposable playback copy. If this
-                // selection became obsolete before the dispatcher accepted it,
-                // no player owns that copy and the worker must release it.
-                if (!handedToPlayer && path is not null) DeleteCatalogPlaybackFile(path);
-            }
-        }, token);
+        return generation;
     }
+
+    private bool IsCurrentCatalogPreviewRequest(long generation) =>
+        generation == _catalogPreviewGeneration && _catalogPreviewPending;
 
     private static void DeleteCatalogPlaybackFile(string path)
     {
@@ -326,19 +376,27 @@ public partial class MainWindow
         PreviewOverlay.Children.Clear();
         _mediaSelectionVisuals.Clear();
         FitMediaElementToFrame();
-        PreviewMediaElement.Visibility = Visibility.Visible;
+        // Keep the monitor hidden until MediaOpened accepts the new source.
+        // WPF may otherwise display the preceding decoder's last frame.
+        PreviewMediaElement.Visibility = Visibility.Collapsed;
         try
         {
             PreviewMediaElement.Stop();
-            PreviewMediaElement.Source = new Uri(path);
+            PreviewMediaElement.Close();
             _catalogPreviewPath = path;
+            PreviewMediaElement.Source = new Uri(path, UriKind.Absolute);
             CatalogPreviewProgressBar.Visibility = Visibility.Collapsed;
             CatalogPlaybackBar.Visibility = Visibility.Visible;
             CatalogPlaybackButton.Content = "❚❚";
             StatusText.Text = "示例预览播放中";
             PreviewMediaElement.Play();
         }
-        catch (UriFormatException exception) { StatusText.Text = $"示例预览路径无效：{exception.Message}"; }
+        catch (Exception exception)
+        {
+            StopCatalogPreview();
+            StatusText.Text = $"示例预览打开失败 · {Tools.StageCodes.Resolve(exception, "CATPV0003")}：{exception.Message}";
+            throw new Tools.StageException("CATPV0003", "无法打开生成的示例视频。", exception);
+        }
     }
 
     private void RefreshLibrary()
@@ -360,7 +418,8 @@ public partial class MainWindow
             2 => "滤镜与特效统一在此，拖到片段上并调整参数",
             3 => "把转场拖到两个相邻片段之间",
             4 => "把贴纸拖到时间线或预览区",
-            _ => "把滤镜拖到可见片段上，可继续调整并添加关键帧"
+            5 => "100 首 CC0 纯音乐 · 单击试听，双击添加或拖入音轨",
+            _ => string.Empty
         };
         LibraryAddButton.Content = category == 0 ? "＋ 导入" : "＋ 添加";
 
@@ -380,6 +439,19 @@ public partial class MainWindow
             {
                 _mediaAvailabilityLastRefreshTicks = Environment.TickCount64;
                 ScheduleMediaAvailabilityRefresh();
+            }
+        }
+        else if (category == 5)
+        {
+            try
+            {
+                items.AddRange(BuiltinMusicCatalog.Tracks.Select(track => new LibraryItem(track.Id, track.Title,
+                    $"{track.Genre} · {track.Mood} · {FormatMusicTime(track.DurationSeconds)} · {track.Artist}",
+                    "#66C8B0", category, track)));
+            }
+            catch (Tools.StageException exception)
+            {
+                StatusText.Text = $"音乐资源读取失败 · {exception.StageCode}：{exception.Message}";
             }
         }
         else
@@ -404,10 +476,26 @@ public partial class MainWindow
                         tag.Value.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
                     asset.SourcePath.Contains(query, StringComparison.CurrentCultureIgnoreCase)))).ToList();
         }
-        string? selectedAsset = (AssetList.SelectedItem as LibraryItem)?.Source is MediaAsset selected ? selected.Id : null;
-        AssetList.ItemsSource = items;
+        string? selectedId = (AssetList.SelectedItem as LibraryItem)?.Id;
+        int? selectedCategory = (AssetList.SelectedItem as LibraryItem)?.Category;
+        LibraryItem? retained = items.FirstOrDefault(item => item.Id == selectedId && item.Category == selectedCategory);
+        // Replacing card containers also ends an uncommitted pointer gesture.
+        // Playback may keep its matching identity, but capture cannot retain a
+        // detached LibraryItem as the next drag source.
+        if (_libraryPressedItem is not null) FinishLibraryDrag();
+        if (selectedId is not null && retained is null)
+        {
+            FinishLibraryDrag();
+            StopCatalogPreview();
+        }
+        _refreshingLibrary = true;
+        try
+        {
+            AssetList.ItemsSource = items;
+            AssetList.SelectedItem = retained;
+        }
+        finally { _refreshingLibrary = false; }
         LoadLibraryThumbnails(items);
-        if (category == 0 && selectedAsset is not null) AssetList.SelectedItem = items.FirstOrDefault(item => item.Id == selectedAsset);
         EmptyLibraryMessage.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyLibraryMessage.Text = category == 0 ? "点击导入，或把媒体文件直接拖到这里" : "没有匹配的内置对象";
     }
@@ -444,7 +532,8 @@ public partial class MainWindow
     private void AddSelectedLibraryItem()
     {
         if (AssetList.SelectedItem is not LibraryItem item) return;
-        if (item.Category is 2 or 3 or 5)
+        StopBuiltinMusicPreview();
+        if (item.Category is 2 or 3)
         {
             ApplyPresetToSelectedClip(item);
             return;
@@ -523,7 +612,7 @@ public partial class MainWindow
         try { paths = args.Data.GetData(DataFormats.FileDrop) as string[]; }
         catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or ArgumentException)
         {
-            StatusText.Text = $"媒体导入失败 · MED-IMPORT-INPUT：{exception.Message}";
+            StatusText.Text = $"媒体导入失败 · PMEDA0001：{exception.Message}";
             return;
         }
         if (paths is null) return;
@@ -542,9 +631,8 @@ public partial class MainWindow
         try { pathSnapshot = paths.ToArray(); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            StatusText.Text = "媒体导入失败 · MED-IMPORT-INPUT";
-            MessageBox.Show(this, $"无法获取拖入的文件路径。\n阶段代码：MED-IMPORT-INPUT\n{exception.Message}",
-                "媒体导入失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = "媒体导入失败 · PMEDA0001";
+            Tools.ErrorDialog.Show(this, "PMEDA0001", exception);
             return [];
         }
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration) return [];
@@ -561,7 +649,7 @@ public partial class MainWindow
             if (candidates.Count == 0)
             {
                 StatusText.Text = scan.Skipped > 0
-                    ? $"没有可导入的媒体；跳过 {scan.Skipped} 个不可读取或不支持的路径 · MED-IMPORT-SCAN"
+                    ? $"没有可导入的媒体；跳过 {scan.Skipped} 个不可读取或不支持的路径 · PMEDA0002"
                     : "没有找到支持的视频、音频或图片文件";
                 return [];
             }
@@ -595,6 +683,7 @@ public partial class MainWindow
                 }
                 catch (ProjectFileException exception)
                 {
+                    if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration) return [];
                     ShowProjectError(exception);
                     return [];
                 }
@@ -688,7 +777,7 @@ public partial class MainWindow
                 .Select(asset => byId[asset.Id]).ToList();
             added = newAssets.Count;
             if (scan.Skipped > 0)
-                StatusText.Text = $"已导入 {added} 个媒体文件；跳过 {scan.Skipped} 个不可读取或不支持的路径 · MED-IMPORT-SCAN";
+                StatusText.Text = $"已导入 {added} 个媒体文件；跳过 {scan.Skipped} 个不可读取或不支持的路径 · PMEDA0002";
             else
                 StatusText.Text = added == 0 ? "媒体已在媒体区" : $"已导入 {added} 个媒体文件";
             // Commit the archive before announcing the import as durable.
@@ -696,7 +785,7 @@ public partial class MainWindow
             // dispatcher responsive while the archive is replaced atomically.
             if (added > 0 && _projectPath is not null &&
                 !await SaveProjectToAsync(_projectPath))
-                StatusText.Text = "媒体已加入当前编辑会话，但尚未写入项目文件 · MED-IMPORT-SAVE";
+                StatusText.Text = "媒体已加入当前编辑会话，但尚未写入项目文件 · PMEDA0003";
             if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration)
                 return [];
             // Metadata collection is independent from the visible bin commit.
@@ -717,9 +806,9 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            StatusText.Text = "媒体导入失败 · MED-IMPORT-SCAN";
-            MessageBox.Show(this, $"无法读取媒体文件。\n阶段代码：MED-IMPORT-SCAN\n{exception.Message}",
-                "媒体导入失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration) return [];
+            StatusText.Text = "媒体导入失败 · PMEDA0002";
+            Tools.ErrorDialog.Show(this, "PMEDA0002", exception);
             return [];
         }
         finally
@@ -743,33 +832,39 @@ public partial class MainWindow
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
-            System.Diagnostics.Debug.WriteLine($"MED-METADATA-PROBE: {exception}");
+            System.Diagnostics.Debug.WriteLine($"PMEDA0004: {exception}");
         }
         finally
         {
             try { await Task.WhenAll(probes); }
             catch (Exception exception)
             {
-                System.Diagnostics.Debug.WriteLine($"MED-METADATA-PROBE: {exception}");
+                System.Diagnostics.Debug.WriteLine($"PMEDA0004: {exception}");
             }
         }
 
         async Task ProbeOneAsync(MediaAsset asset)
         {
+            string sourcePath = asset.SourcePath;
+            long generation = _projectGeneration;
             try
             {
                 // Process.Start and the JSON decode inside the probe can block
                 // before and after its awaits. Run the entire probe on a
                 // worker; only the model commit returns to the dispatcher.
                 MediaMetadata? metadata = await Task.Run(
-                    () => MediaMetadataProbe.TryReadAsync(asset.SourcePath, cancellationToken),
+                    () => MediaMetadataProbe.TryReadAsync(sourcePath, cancellationToken),
                     cancellationToken);
                 if (metadata is null) return;
                 await Dispatcher.InvokeAsync(() =>
                 {
-                    if (!ReferenceEquals(targetProject, _project) || cancellationToken.IsCancellationRequested) return;
+                    if (!ReferenceEquals(targetProject, _project) || generation != _projectGeneration ||
+                        cancellationToken.IsCancellationRequested) return;
                     MediaAsset? current = targetProject.Media.FirstOrDefault(candidate => candidate.Id == asset.Id);
-                    if (current is null) return;
+                    // A relink or undo can preserve the ID while replacing its
+                    // content. Never attach the preceding file's probe result.
+                    if (current is null || !ReferenceEquals(current, asset) ||
+                        !string.Equals(current.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase)) return;
                     bool changed = System.Text.Json.JsonSerializer.Serialize(current.AudioStreams) != System.Text.Json.JsonSerializer.Serialize(metadata.AudioStreams ?? []) ||
                         (metadata.DurationSeconds is > 0 && current.DurationSeconds != metadata.DurationSeconds) ||
                         current.Width != metadata.Width || current.Height != metadata.Height ||
@@ -791,7 +886,13 @@ public partial class MainWindow
                     current.AudioChannels = metadata.AudioChannels;
                     current.AudioSampleRate = metadata.AudioSampleRate;
                     current.FileSizeBytes = metadata.FileSizeBytes;
+                    // Packaged music keeps its attribution when the user
+                    // explicitly re-probes the imported audio asset.
+                    var musicAttribution = current.Metadata.ContainsKey("BuiltinMusicId")
+                        ? current.Metadata.Where(tag => tag.Key is "BuiltinMusicId" or "Artist" or "Genre" or "Mood" or
+                            "SourceUrl" or "LicenseId" or "LicenseUrl").ToArray() : [];
                     current.Metadata = new Dictionary<string, string>(metadata.Tags, StringComparer.OrdinalIgnoreCase);
+                    foreach (var attribution in musicAttribution) current.Metadata[attribution.Key] = attribution.Value;
                     current.FileModifiedUtc = metadata.FileModifiedUtc;
                     // A save can finish while a probe runs. Mark the project
                     // dirty when optional metadata arrives afterward.
@@ -807,7 +908,7 @@ public partial class MainWindow
             catch (OperationCanceledException) { }
             catch (Exception exception)
             {
-                System.Diagnostics.Debug.WriteLine($"MED-METADATA-PROBE: {exception}");
+                System.Diagnostics.Debug.WriteLine($"PMEDA0004: {exception}");
             }
             finally { _mediaProbeGate.Release(); }
         }
@@ -836,7 +937,7 @@ public partial class MainWindow
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
             {
                 skipped++;
-                System.Diagnostics.Debug.WriteLine($"MED-IMPORT-SCAN: {input}: {exception.Message}");
+                System.Diagnostics.Debug.WriteLine($"PMEDA0002: {input}: {exception.Message}");
             }
         }
         return new ImportScan(found, skipped);
@@ -874,6 +975,14 @@ public partial class MainWindow
 
     private sealed record LibraryItem(string Id, string Name, string Description, string AccentHex, int Category, object Source) : System.ComponentModel.INotifyPropertyChanged
     {
+        public string ToolTip => Source switch
+        {
+            BuiltinMusicTrack music => $"{music.Title}\n{music.Genre} · {music.Mood} · {music.Artist}\n{music.LicenseId}\n{music.SourceUrl}",
+            MediaAsset media when media.Metadata.ContainsKey("BuiltinMusicId") =>
+                $"{Name}\n{media.Metadata.GetValueOrDefault("Artist")} · {media.Metadata.GetValueOrDefault("Genre")}\n" +
+                $"{media.Metadata.GetValueOrDefault("LicenseId")}\n{media.Metadata.GetValueOrDefault("SourceUrl")}",
+            _ => $"{Name}\n{Description}"
+        };
         public System.Windows.Media.Imaging.BitmapSource? Thumbnail { get; set; }
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
         public void SetThumbnail(System.Windows.Media.Imaging.BitmapSource bitmap)

@@ -14,6 +14,7 @@ public partial class MainWindow
 {
     private async void OpenSelectedSourceMonitor()
     {
+        long request = ++_sourceMonitorRequest;
         MediaAsset? asset = _sourceMonitorOverride ?? SelectedMedia();
         _sourceMonitorOverride = null;
         double? initialSeconds = _sourceMonitorInitialSeconds;
@@ -22,13 +23,19 @@ public partial class MainWindow
         ProjectDocument sourceProject = _project;
         long sourceGeneration = _projectGeneration;
         long sourceRevision = _projectRevision;
+        string sourcePath = asset.SourcePath;
+        string? proxyPath = asset.ProxyPath;
+        bool usingProxy = asset.UseProxy;
+        bool IsCurrentAssetSource() => request == _sourceMonitorRequest &&
+            ReferenceEquals(sourceProject, _project) && sourceGeneration == _projectGeneration &&
+            sourceProject.Media.Contains(asset) && !_experienceLifetime.IsCancellationRequested &&
+            asset.SourcePath == sourcePath && asset.ProxyPath == proxyPath && asset.UseProxy == usingProxy;
         string[] sourceCandidates = asset.UseProxy && !string.IsNullOrWhiteSpace(asset.ProxyPath)
             ? [asset.ProxyPath, asset.SourcePath] : [asset.SourcePath];
         string? path = await Task.Run(() => sourceCandidates.FirstOrDefault(File.Exists));
-        if (!ReferenceEquals(sourceProject, _project) || sourceGeneration != _projectGeneration ||
-            sourceRevision != _projectRevision || !sourceProject.Media.Contains(asset)) return;
+        if (!IsCurrentAssetSource() || sourceRevision != _projectRevision) return;
         if (path is null)
-        { ShowProjectMediaError("MED-SOURCE-OFFLINE", "源媒体已离线，请重新链接。"); return; }
+        { ShowProjectMediaError("PMEDA0010", "源媒体已离线，请重新链接。"); return; }
         if (asset.UseProxy && !string.IsNullOrWhiteSpace(asset.ProxyPath))
             asset.SetProxyAvailability(string.Equals(path, asset.ProxyPath, StringComparison.OrdinalIgnoreCase));
         var window = new Window
@@ -40,6 +47,13 @@ public partial class MainWindow
             SizeToContent = SizeToContent.Manual,
             WindowState = WindowState.Normal
         };
+        bool IsCurrentSource() => IsCurrentAssetSource();
+        bool CanEditSource()
+        {
+            if (IsCurrentSource()) return true;
+            window.Close();
+            return false;
+        }
         // Place the independent source viewer over the library column. The
         // program viewer remains visible beside it while the user marks a
         // source range or inserts that range into the targeted timeline track.
@@ -87,10 +101,10 @@ public partial class MainWindow
                     worker.SetApartmentState(ApartmentState.STA);
                     worker.Start();
                     var bitmap = await completion.Task;
-                    if (window.IsVisible) image.Source = bitmap;
+                    if (window.IsVisible && IsCurrentSource()) image.Source = bitmap;
                 }
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or UriFormatException or NotSupportedException)
-                { ShowProjectMediaError("MED-SOURCE-PREVIEW", "无法打开源图片。", exception); }
+                { if (window.IsVisible && IsCurrentSource()) ShowProjectMediaError("PMEDA0011", "无法打开源图片。", exception); }
             };
             layout.Children.Add(image);
         }
@@ -98,10 +112,15 @@ public partial class MainWindow
         {
             try { player.Source = new Uri(path); }
             catch (UriFormatException exception)
-            { ShowProjectMediaError("MED-SOURCE-PREVIEW", "无法打开源媒体。", exception); return; }
+            { ShowProjectMediaError("PMEDA0011", "无法打开源媒体。", exception); return; }
             layout.Children.Add(player);
-            player.MediaFailed += (_, args) => ShowProjectMediaError("MED-SOURCE-PREVIEW", "当前系统解码器无法预览该媒体。", args.ErrorException);
-            player.MediaOpened += (_, _) => player.Position = TimeSpan.FromSeconds(initialSeconds ?? asset.SourceInSeconds);
+            player.MediaFailed += (_, args) =>
+            { if (window.IsVisible && IsCurrentSource()) ShowProjectMediaError("PMEDA0011", "当前系统解码器无法预览该媒体。", args.ErrorException); };
+            player.MediaOpened += (_, _) =>
+            {
+                if (!CanEditSource()) return;
+                player.Position = TimeSpan.FromSeconds(initialSeconds ?? asset.SourceInSeconds);
+            };
             window.Loaded += (_, _) => player.Play();
             window.Closed += (_, _) => player.Close();
         }
@@ -121,41 +140,47 @@ public partial class MainWindow
         var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         ticker.Tick += (_, _) =>
         {
+            if (!CanEditSource()) return;
             if (asset.Kind == MediaKind.Image || slider.IsMouseCaptureWithin) return;
             slider.Value = Math.Clamp(player.Position.TotalSeconds, 0, slider.Maximum);
             clock.Text = player.Position.ToString(@"hh\:mm\:ss");
         };
         slider.ValueChanged += (_, _) =>
         {
+            if (!CanEditSource()) return;
             if (asset.Kind != MediaKind.Image && slider.IsMouseCaptureWithin)
                 player.Position = TimeSpan.FromSeconds(slider.Value);
         };
         slider.PreviewMouseLeftButtonUp += (_, _) =>
         {
+            if (!CanEditSource()) return;
             if (asset.Kind != MediaKind.Image) player.Position = TimeSpan.FromSeconds(slider.Value);
         };
         window.Loaded += (_, _) => ticker.Start();
         window.Closed += (_, _) => ticker.Stop();
         buttons.Children.Add(NewToolButton("▶ / 暂停", (_, _) =>
         {
+            if (!CanEditSource()) return;
             if (asset.Kind == MediaKind.Image) return;
             if (sourcePlaying) player.Pause(); else player.Play();
             sourcePlaying = !sourcePlaying;
         }));
-        buttons.Children.Add(NewToolButton("设为入点", (_, _) => SetSourcePoint(asset, true,
-            asset.Kind == MediaKind.Image ? 0 : player.Position.TotalSeconds)));
-        buttons.Children.Add(NewToolButton("设为出点", (_, _) => SetSourcePoint(asset, false,
-            asset.Kind == MediaKind.Image ? 0 : player.Position.TotalSeconds)));
+        buttons.Children.Add(NewToolButton("设为入点", (_, _) =>
+        { if (CanEditSource()) SetSourcePoint(asset, true, asset.Kind == MediaKind.Image ? 0 : player.Position.TotalSeconds); }));
+        buttons.Children.Add(NewToolButton("设为出点", (_, _) =>
+        { if (CanEditSource()) SetSourcePoint(asset, false, asset.Kind == MediaKind.Image ? 0 : player.Position.TotalSeconds); }));
         buttons.Children.Add(NewToolButton("添加源标记", (_, _) =>
         {
+            if (!CanEditSource()) return;
             string? name = PromptText("源标记", "名称", "标记");
-            if (string.IsNullOrWhiteSpace(name)) return;
+            if (string.IsNullOrWhiteSpace(name) || !CanEditSource()) return;
             SaveUndoState();
             asset.Markers.Add(new TimelineMarker { Name = name.Trim(), TimeSeconds = player.Position.TotalSeconds });
             CommitProjectMediaChange("已添加源标记");
         }));
         buttons.Children.Add(NewToolButton("插入到目标轨道", (_, _) =>
         {
+            if (!CanEditSource()) return;
             // Source In/Out lives on the asset. Reuse the media library drop
             // path so the timeline receives the same non-destructive range.
             LibraryItem? item = _project.Media.Where(media => media.Id == asset.Id)
@@ -172,15 +197,16 @@ public partial class MainWindow
     }
 
     private Window? _sourceMonitor;
+    private long _sourceMonitorRequest;
 
     private void SetSourcePoint(MediaAsset asset, bool isIn, double seconds)
     {
         if (!double.IsFinite(seconds) || seconds < 0 ||
             (asset.DurationSeconds is > 0 && seconds > asset.DurationSeconds))
-        { ShowProjectMediaError("MED-SOURCE-RANGE", "源时间超出媒体范围。"); return; }
+        { ShowProjectMediaError("PMEDA0012", "源时间超出媒体范围。"); return; }
         if (isIn && asset.SourceOutSeconds is double outPoint && seconds >= outPoint ||
             !isIn && seconds <= asset.SourceInSeconds)
-        { ShowProjectMediaError("MED-SOURCE-RANGE", "出点必须晚于入点。"); return; }
+        { ShowProjectMediaError("PMEDA0012", "出点必须晚于入点。"); return; }
         SaveUndoState();
         if (isIn) asset.SourceInSeconds = seconds; else asset.SourceOutSeconds = seconds;
         CommitProjectMediaChange(isIn ? "已设置源入点" : "已设置源出点");
@@ -207,12 +233,16 @@ public partial class MainWindow
             await ProjectFileService.EnsureImportCapacityAsync(projected);
         else
             await ProjectFileService.EnsureImportCapacityAsync(destination, projected);
-        if (ReferenceEquals(expectedProject, _project) && expectedGeneration == _projectGeneration &&
-            expectedRevision == _projectRevision && expectedProject.Media.Contains(replacement) &&
+        if (IsCurrentMediaOperation(expectedProject, expectedGeneration, expectedRevision) && expectedProject.Media.Contains(replacement) &&
             destination == _projectPath) return true;
-        StatusText.Text = "空间检查期间项目已修改，请重试";
+        if (IsCurrentMediaOperation(expectedProject, expectedGeneration) && expectedProject.Media.Contains(replacement))
+            StatusText.Text = "空间检查期间项目已修改，请重试";
         return false;
     }
+
+    private bool IsCurrentMediaOperation(ProjectDocument owner, long generation, long? revision = null) =>
+        ReferenceEquals(owner, _project) && generation == _projectGeneration &&
+        (revision is null || revision.Value == _projectRevision) && !_experienceLifetime.IsCancellationRequested;
 
     /// <summary>Save immediately when every required media path is available.</summary>
     private async Task SaveAfterMediaReplacementAsync()
@@ -251,7 +281,12 @@ public partial class MainWindow
             if (!await EnsureMediaReplacementCapacityAsync(asset, false, dialog.FileName,
                 targetProject, targetGeneration, targetRevision)) return;
         }
-        catch (ProjectFileException exception) { ShowProjectError(exception); return; }
+        catch (ProjectFileException exception)
+        {
+            if (IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision) && targetProject.Media.Contains(asset))
+                ShowProjectError(exception);
+            return;
+        }
         SaveUndoState();
         asset.ProxyPath = dialog.FileName;
         asset.UseProxy = true;
@@ -264,7 +299,7 @@ public partial class MainWindow
     {
         MediaAsset? asset = SelectedMedia();
         if (asset is null || string.IsNullOrWhiteSpace(asset.ProxyPath))
-        { ShowProjectMediaError("MED-PROXY", "此素材没有可用的代理文件。"); return; }
+        { ShowProjectMediaError("PMEDA0020", "此素材没有可用的代理文件。"); return; }
         ProjectDocument targetProject = _project;
         long targetGeneration = _projectGeneration;
         long targetRevision = _projectRevision;
@@ -272,7 +307,7 @@ public partial class MainWindow
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
             targetRevision != _projectRevision || !targetProject.Media.Contains(asset)) return;
         if (!proxyExists)
-        { ShowProjectMediaError("MED-PROXY", "此素材没有可用的代理文件。"); return; }
+        { ShowProjectMediaError("PMEDA0020", "此素材没有可用的代理文件。"); return; }
         SaveUndoState();
         asset.UseProxy = !asset.UseProxy;
         if (asset.UseProxy) asset.SetProxyAvailability(true);
@@ -283,6 +318,23 @@ public partial class MainWindow
     {
         MediaAsset? asset = SelectedMedia();
         if (asset is null || _proxyInProgress || asset.Kind == MediaKind.Image) return;
+        ProjectDocument owner = _project;
+        long generation = _projectGeneration;
+        // Reserve the operation before preflight yields. A slow source check
+        // must not admit a second proxy worker that later releases its slot.
+        _proxyInProgress = true;
+        try { await CreateProxyForAssetAsync(asset); }
+        catch (Exception exception) when (exception is Win32Exception or IOException or UnauthorizedAccessException or
+            InvalidOperationException or ArgumentException or NotSupportedException or ProjectFileException)
+        {
+            if (ReferenceEquals(owner, _project) && generation == _projectGeneration && owner.Media.Contains(asset))
+                ShowProjectMediaError("PMEDA0023", "创建本地代理失败。", exception);
+        }
+        finally { _proxyInProgress = false; }
+    }
+
+    private async Task CreateProxyForAssetAsync(MediaAsset asset)
+    {
         ProjectDocument targetProject = _project;
         long targetGeneration = _projectGeneration;
         long targetRevisionBeforeSourceCheck = _projectRevision;
@@ -290,7 +342,7 @@ public partial class MainWindow
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
             targetRevisionBeforeSourceCheck != _projectRevision || !targetProject.Media.Contains(asset)) return;
         if (!sourceExists)
-        { ShowProjectMediaError("MED-PROXY-SOURCE", "源媒体已离线。"); return; }
+        { ShowProjectMediaError("PMEDA0021", "源媒体已离线。"); return; }
         var dialog = new SaveFileDialog { Title = "保存本地代理", DefaultExt = ".mp4", AddExtension = true,
             Filter = "MP4 代理|*.mp4", FileName = Path.GetFileNameWithoutExtension(asset.SourcePath) + ".proxy.mp4",
             OverwritePrompt = false };
@@ -307,11 +359,15 @@ public partial class MainWindow
                 string.Equals(Path.GetFullPath(path), Path.GetFullPath(output), StringComparison.OrdinalIgnoreCase)));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        { ShowProjectMediaError("MED-PROXY-PATH", "无法检查代理目标路径。", exception); return; }
+        {
+            if (IsCurrentMediaOperation(targetProject, targetGeneration, targetRevisionBeforeSourceCheck) && targetProject.Media.Contains(asset))
+                ShowProjectMediaError("PMEDA0022", "无法检查代理目标路径。", exception);
+            return;
+        }
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
             targetRevisionBeforeSourceCheck != _projectRevision || !targetProject.Media.Contains(asset)) return;
         if (outputInUse)
-        { ShowProjectMediaError("MED-PROXY-PATH", "代理目标是当前工程正在使用的媒体文件，请选择其他路径。"); return; }
+        { ShowProjectMediaError("PMEDA0022", "代理目标是当前工程正在使用的媒体文件，请选择其他路径。"); return; }
         bool outputExists = await Task.Run(() => File.Exists(output));
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
             targetRevisionBeforeSourceCheck != _projectRevision || !targetProject.Media.Contains(asset)) return;
@@ -321,7 +377,13 @@ public partial class MainWindow
             targetRevisionBeforeSourceCheck != _projectRevision || !targetProject.Media.Contains(asset)) return;
         string temporaryOutput = Path.Combine(Path.GetDirectoryName(output)!,
             $".{Path.GetFileNameWithoutExtension(output)}.{Guid.NewGuid():N}.mp4");
-        _proxyInProgress = true;
+        string sourcePath = asset.SourcePath;
+        string? previousProxyPath = asset.ProxyPath;
+        bool previouslyUsingProxy = asset.UseProxy;
+        bool IsCurrentProxyTarget() => ReferenceEquals(targetProject, _project) &&
+            targetGeneration == _projectGeneration && targetProject.Media.Contains(asset) &&
+            asset.SourcePath == sourcePath && asset.ProxyPath == previousProxyPath &&
+            asset.UseProxy == previouslyUsingProxy && !_experienceLifetime.IsCancellationRequested;
         StatusText.Text = "正在创建本地代理…";
         try
         {
@@ -329,7 +391,7 @@ public partial class MainWindow
             if (!File.Exists(executable)) executable = "ffmpeg";
             var start = new ProcessStartInfo(executable) { UseShellExecute = false,
                 RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true };
-            var options = new List<string> { "-y", "-i", asset.SourcePath };
+            var options = new List<string> { "-y", "-i", sourcePath };
             if (asset.Kind == MediaKind.Video)
                 options.AddRange(["-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28"]);
             options.AddRange(["-c:a", "aac", "-b:a", "128k", temporaryOutput]);
@@ -345,12 +407,24 @@ public partial class MainWindow
             if (process.ExitCode != 0 || !await Task.Run(() => File.Exists(temporaryOutput)))
                 throw new ProjectFileException(ProjectStageCode.Write,
                     "无法生成代理。" + Environment.NewLine + details[^Math.Min(500, details.Length)..]);
-            await Task.Run(() => File.Move(temporaryOutput, output, overwrite: true));
-            if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
-                !targetProject.Media.Contains(asset)) return;
+            if (!IsCurrentProxyTarget()) return;
             long targetRevision = _projectRevision;
-            if (!await EnsureMediaReplacementCapacityAsync(asset, false, output,
+            if (!await EnsureMediaReplacementCapacityAsync(asset, false, temporaryOutput,
                 targetProject, targetGeneration, targetRevision)) return;
+            if (!IsCurrentProxyTarget()) return;
+            string outputFullPath = Path.GetFullPath(output);
+            if (targetProject.Media.SelectMany(item => new[] { item.SourcePath, item.ProxyPath })
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Any(path => string.Equals(Path.GetFullPath(path!), outputFullPath, StringComparison.OrdinalIgnoreCase)) ||
+                _projectPath is not null && string.Equals(Path.GetFullPath(_projectPath), outputFullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                ShowProjectMediaError("PMEDA0022", "代理目标在生成期间已被当前工程使用，请选择其他路径。");
+                return;
+            }
+            // The final same-directory rename and model commit share one UI
+            // turn. No relink or project switch can claim the destination
+            // between its last ownership check and publication.
+            File.Move(temporaryOutput, output, overwrite: true);
             SaveUndoState();
             asset.ProxyPath = output;
             asset.UseProxy = true;
@@ -359,13 +433,12 @@ public partial class MainWindow
             await SaveAfterMediaReplacementAsync();
         }
         catch (Exception exception) when (exception is Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException or ProjectFileException)
-        { ShowProjectMediaError("MED-PROXY-CREATE", "创建本地代理失败。", exception); }
+        { if (IsCurrentProxyTarget()) ShowProjectMediaError("PMEDA0023", "创建本地代理失败。", exception); }
         finally
         {
             try { await Task.Run(() => { if (File.Exists(temporaryOutput)) File.Delete(temporaryOutput); }); }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            { Debug.WriteLine($"MED-PROXY-CLEANUP: {exception}"); }
-            _proxyInProgress = false;
+            { Debug.WriteLine($"PMEDA0024: {exception}"); }
         }
     }
 
@@ -382,13 +455,18 @@ public partial class MainWindow
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
             targetRevision != _projectRevision || !targetProject.Media.Contains(asset)) return;
         if (DetectMediaKind(dialog.FileName) != asset.Kind)
-        { ShowProjectMediaError("MED-RELINK-TYPE", "新文件类型与原素材不一致。"); return; }
+        { ShowProjectMediaError("PMEDA0030", "新文件类型与原素材不一致。"); return; }
         try
         {
             if (!await EnsureMediaReplacementCapacityAsync(asset, true, dialog.FileName,
                 targetProject, targetGeneration, targetRevision)) return;
         }
-        catch (ProjectFileException exception) { ShowProjectError(exception); return; }
+        catch (ProjectFileException exception)
+        {
+            if (IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision) && targetProject.Media.Contains(asset))
+                ShowProjectError(exception);
+            return;
+        }
         DateTimeOffset? fileModified = null;
         try { fileModified = await Task.Run(() => new DateTimeOffset(File.GetLastWriteTimeUtc(dialog.FileName))); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -396,6 +474,8 @@ public partial class MainWindow
         if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
             targetRevision != _projectRevision || !targetProject.Media.Contains(asset)) return;
         SaveUndoState();
+        if (!string.Equals(asset.SourcePath, dialog.FileName, StringComparison.OrdinalIgnoreCase))
+            ForgetBuiltinMusicProvenance(asset);
         asset.SourcePath = dialog.FileName;
         if (fileModified is DateTimeOffset modified) asset.FileModifiedUtc = modified;
         CommitProjectMediaChange("媒体已重新链接", true);
@@ -421,7 +501,12 @@ public partial class MainWindow
             if (!await EnsureMediaReplacementCapacityAsync(asset, false, dialog.FileName,
                 targetProject, targetGeneration, targetRevision)) return;
         }
-        catch (ProjectFileException exception) { ShowProjectError(exception); return; }
+        catch (ProjectFileException exception)
+        {
+            if (IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision) && targetProject.Media.Contains(asset))
+                ShowProjectError(exception);
+            return;
+        }
         SaveUndoState();
         asset.ProxyPath = dialog.FileName;
         asset.SetProxyAvailability(true);
@@ -442,7 +527,11 @@ public partial class MainWindow
                 .Where(asset => !File.Exists(asset.SourcePath)).Select(asset => asset.Id).ToArray());
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        { ShowProjectMediaError("MED-RELINK-CHECK", "无法检查离线媒体。", exception); return; }
+        {
+            if (IsCurrentMediaOperation(mediaProject, mediaGeneration, mediaRevision))
+                ShowProjectMediaError("PMEDA0031", "无法检查离线媒体。", exception);
+            return;
+        }
         if (!ReferenceEquals(mediaProject, _project) || mediaGeneration != _projectGeneration ||
             mediaRevision != _projectRevision) return;
         MediaAsset[] offline = _project.Media.Where(asset => missingIds.Contains(asset.Id)).ToArray();
@@ -482,10 +571,12 @@ public partial class MainWindow
                 }
                 return foundMatches;
             });
-            if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
-                targetRevision != _projectRevision)
-            { StatusText.Text = "扫描期间项目已修改，请重新链接"; return; }
-            if (matches.Count == 0) { ShowProjectMediaError("MED-RELINK-MATCH", "没有找到名称与类型匹配的媒体。"); return; }
+            if (!IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision))
+            {
+                if (IsCurrentMediaOperation(targetProject, targetGeneration)) StatusText.Text = "扫描期间项目已修改，请重新链接";
+                return;
+            }
+            if (matches.Count == 0) { ShowProjectMediaError("PMEDA0032", "没有找到名称与类型匹配的媒体。"); return; }
             // A relink introduces new source bytes into the portable archive.
             // Verify the destination before changing any project references.
             var replacementById = matches.ToDictionary(match => match.AssetId, match => match.Path,
@@ -500,21 +591,34 @@ public partial class MainWindow
                 await ProjectFileService.EnsureImportCapacityAsync(projectPath, projectedPaths);
             else
                 await ProjectFileService.EnsureImportCapacityAsync(projectedPaths);
-            if (!ReferenceEquals(targetProject, _project) || targetGeneration != _projectGeneration ||
-                targetRevision != _projectRevision || capacityProjectPath != _projectPath)
-            { StatusText.Text = "空间检查期间项目已修改，请重新链接"; return; }
+            if (!IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision) || capacityProjectPath != _projectPath)
+            {
+                if (IsCurrentMediaOperation(targetProject, targetGeneration)) StatusText.Text = "空间检查期间项目已修改，请重新链接";
+                return;
+            }
             SaveUndoState();
             foreach ((string id, string path) in matches)
             {
                 MediaAsset? current = _project.Media.FirstOrDefault(item => item.Id == id);
-                if (current is not null) current.SourcePath = path;
+                if (current is not null)
+                {
+                    if (!string.Equals(current.SourcePath, path, StringComparison.OrdinalIgnoreCase))
+                        ForgetBuiltinMusicProvenance(current);
+                    current.SourcePath = path;
+                }
             }
             CommitProjectMediaChange($"已重新链接 {matches.Count} 个媒体；剩余源媒体 {offline.Length - matches.Count} 个离线", true);
             await SaveAfterMediaReplacementAsync();
         }
-        catch (ProjectFileException exception) { ShowProjectError(exception); }
+        catch (ProjectFileException exception)
+        {
+            if (IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision)) ShowProjectError(exception);
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
-        { ShowProjectMediaError("MED-RELINK-SCAN", "扫描媒体文件夹失败。", exception); }
+        {
+            if (IsCurrentMediaOperation(targetProject, targetGeneration, targetRevision))
+                ShowProjectMediaError("PMEDA0033", "扫描媒体文件夹失败。", exception);
+        }
     }
 
     private async Task ConsolidateProjectAsync()
@@ -525,7 +629,7 @@ public partial class MainWindow
         string destination;
         try { destination = Path.GetFullPath(dialog.FolderName); }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        { ShowProjectMediaError("MED-CONSOLIDATE-PATH", "整合目标文件夹无效。", exception); return; }
+        { ShowProjectMediaError("PMEDA0040", "整合目标文件夹无效。", exception); return; }
         ProjectDocument sourceProject = _project;
         long sourceRevision = _projectRevision;
         long sourceGeneration = _projectGeneration;
@@ -535,32 +639,42 @@ public partial class MainWindow
         {
             ProjectDocument snapshot = await Task.Run(() =>
                 JsonSerializer.Deserialize<ProjectDocument>(JsonSerializer.Serialize(sourceProject))!);
-            if (!ReferenceEquals(sourceProject, _project) || sourceRevision != _projectRevision ||
-                sourceGeneration != _projectGeneration)
-            { ShowProjectMediaError("MED-CONSOLIDATE-CHANGED", "准备整合期间项目已修改，请重试。"); return; }
+            if (!IsCurrentMediaOperation(sourceProject, sourceGeneration, sourceRevision))
+            {
+                if (IsCurrentMediaOperation(sourceProject, sourceGeneration))
+                    ShowProjectMediaError("PMEDA0041", "准备整合期间项目已修改，请重试。");
+                return;
+            }
             string[] sources = snapshot.Media.SelectMany(asset => new[] { asset.SourcePath, asset.ProxyPath })
                 .Where(path => !string.IsNullOrWhiteSpace(path)).Cast<string>().ToArray();
             bool anyOffline = await Task.Run(() => sources.Any(path => !File.Exists(path)));
+            if (!IsCurrentMediaOperation(sourceProject, sourceGeneration, sourceRevision))
+            {
+                if (IsCurrentMediaOperation(sourceProject, sourceGeneration))
+                    ShowProjectMediaError("PMEDA0041", "检查媒体期间项目已修改，请重试。");
+                return;
+            }
             if (anyOffline)
-            { ShowProjectMediaError("MED-CONSOLIDATE-OFFLINE", "项目中有离线媒体，请先重新链接。"); return; }
-            if (!ReferenceEquals(sourceProject, _project) || sourceRevision != _projectRevision ||
-                sourceGeneration != _projectGeneration)
-            { ShowProjectMediaError("MED-CONSOLIDATE-CHANGED", "检查媒体期间项目已修改，请重试。"); return; }
+            { ShowProjectMediaError("PMEDA0042", "项目中有离线媒体，请先重新链接。"); return; }
             string projectFile = Path.Combine(destination,
                 $"{SafeFileName(snapshot.Name)}_整合_{Guid.NewGuid():N}.tvep");
             // The archive writer embeds every source and proxy itself; an
             // extra sibling media directory would defeat portability.
             await ProjectFileService.SaveAsync(snapshot, projectFile);
-            if (!ReferenceEquals(sourceProject, _project) || sourceRevision != _projectRevision ||
-                sourceGeneration != _projectGeneration)
+            if (!IsCurrentMediaOperation(sourceProject, sourceGeneration, sourceRevision))
             {
-                StatusText.Text = $"项目副本已保存到 {projectFile}；当前项目随后已有新修改";
+                if (IsCurrentMediaOperation(sourceProject, sourceGeneration))
+                    StatusText.Text = $"项目副本已保存到 {projectFile}；当前项目随后已有新修改";
                 return;
             }
-            StatusText.Text = $"项目副本已整合到 {projectFile}";
+            if (IsCurrentMediaOperation(sourceProject, sourceGeneration, sourceRevision))
+                StatusText.Text = $"项目副本已整合到 {projectFile}";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ProjectFileException or ArgumentException)
-        { ShowProjectMediaError("MED-CONSOLIDATE", "整合项目副本失败。", exception); }
+        {
+            if (IsCurrentMediaOperation(sourceProject, sourceGeneration, sourceRevision))
+                ShowProjectMediaError("PMEDA0043", "整合项目副本失败。", exception);
+        }
         finally { _consolidationInProgress = false; }
     }
 

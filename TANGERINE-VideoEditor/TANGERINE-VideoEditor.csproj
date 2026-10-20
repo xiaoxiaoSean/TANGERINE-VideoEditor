@@ -13,6 +13,9 @@
   <ItemGroup>
     <Content Include="..\toAI.md" Link="toAI.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\dev_doc1\*.md" Link="dev_doc1\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Resources\StageList.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Resources\CatalogThumbnails\**\*" Link="Resources\CatalogThumbnails\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Resources\BuiltinMusic\**\*" Link="Resources\BuiltinMusic\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="..\TANGERINE-VideoEditor.Automation\TANGERINE-VideoEditor.Automation.csproj" />
     <ProjectReference Include="..\TANGERINE-VideoEditor.Mcp\TANGERINE-VideoEditor.Mcp.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="FFmpeg.Static" Version="4.4.0.7" />

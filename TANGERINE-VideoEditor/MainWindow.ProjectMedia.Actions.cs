@@ -37,7 +37,7 @@ public partial class MainWindow
         if (asset.Kind != MediaKind.Image && sourceEnd is double end &&
             (!double.IsFinite(end) || end <= asset.SourceInSeconds))
         {
-            ShowProjectMediaError("SEQ-SOURCE-RANGE", "源媒体的可用入出点范围为空，请先检查入点和出点。");
+            ShowProjectMediaError("SEQNC0001", "源媒体的可用入出点范围为空，请先检查入点和出点。");
             return;
         }
         SaveUndoState();
@@ -74,7 +74,7 @@ public partial class MainWindow
     {
         if (sequenceId == _project.Sequence.Id) return;
         ProjectSequenceWorkspace? target = _project.Sequences.FirstOrDefault(item => item.Sequence.Id == sequenceId);
-        if (target is null) { ShowProjectMediaError("SEQ-SWITCH", "找不到目标序列。"); return; }
+        if (target is null) { ShowProjectMediaError("SEQNC0002", "找不到目标序列。"); return; }
         // Switching is an editor view operation. The project data stays the
         // same, but we keep an undo snapshot so edits after switching restore
         // a consistent active workspace.
@@ -89,10 +89,26 @@ public partial class MainWindow
 
     private void FinishSequenceSwitch(string status)
     {
+        if (_soloTrackId is not null)
+        { _soloTrackId = null; _monitorStateRevision++; }
+        StopCatalogPreview();
+        StopAudioPreview();
+        StopCachedPreview();
+        InvalidateCompositedPreview();
+        _previewImageRequest++;
+        _previewImageLoadingPath = null;
+        _previewImageFailedPath = null;
+        _previewSourcePath = null;
+        _lastMediaTransformKey = null;
+        _lastTitleLayoutKey = null;
+        PreviewMediaElement.Stop();
+        PreviewMediaElement.Source = null;
+        PreviewImage.Source = null;
         ClearTimelineSelection();
         _pendingDropBatches.Clear();
         _isPlaying = false;
         _playbackTimer.Stop();
+        _playbackClock.Stop();
         PlayPauseButton.Content = "▶";
         MarkProjectDirty();
         RefreshProjectChrome();
@@ -156,7 +172,7 @@ public partial class MainWindow
                 System.Globalization.CultureInfo.InvariantCulture, out double fps) ||
             width < 16 || width > 8192 || height < 16 || height > 8192 || fps < 1 || fps > 120)
         {
-            ShowProjectMediaError("SEQ-SETTINGS", "序列规格无效。宽和高须在 16 到 8192 之间，帧率须在 1 到 120 之间。");
+            ShowProjectMediaError("SEQNC0003", "序列规格无效。宽和高须在 16 到 8192 之间，帧率须在 1 到 120 之间。");
             return;
         }
         SaveUndoState();
@@ -169,13 +185,13 @@ public partial class MainWindow
 
     private void DeleteCurrentSequence()
     {
-        if (_project.Sequences.Count == 0) { ShowProjectMediaError("SEQ-DELETE", "项目至少需要保留一个序列。"); return; }
+        if (_project.Sequences.Count == 0) { ShowProjectMediaError("SEQNC0004", "项目至少需要保留一个序列。"); return; }
         int nestedReferences = _project.Sequences.SelectMany(sequence => sequence.Tracks)
             .SelectMany(track => track.Clips)
             .Count(clip => clip.Kind == ClipKind.Sequence && clip.NestedSequenceId == _project.Sequence.Id);
         if (nestedReferences > 0)
         {
-            ShowProjectMediaError("SEQ-DELETE-REFERENCED",
+            ShowProjectMediaError("SEQNC0005",
                 $"有 {nestedReferences} 个嵌套序列片段仍引用当前序列。请先删除这些片段，再删除序列。");
             return;
         }
@@ -197,7 +213,7 @@ public partial class MainWindow
             _project.Sequences.Select(item => new ProjectPickerItem(item.Sequence.Id, item.Sequence.Name)).ToList());
         if (choice?.Id is null) return;
         if (SequenceContainsTarget(choice.Id, _project.Sequence.Id, new HashSet<string>(StringComparer.Ordinal)))
-        { ShowProjectMediaError("SEQ-NEST-CYCLE", "该嵌套序列会形成循环引用。"); return; }
+        { ShowProjectMediaError("SEQNC0006", "该嵌套序列会形成循环引用。"); return; }
         ProjectSequenceWorkspace? nested = _project.Sequences.FirstOrDefault(item => item.Sequence.Id == choice.Id);
         if (nested is null) return;
         double duration = nested.Tracks.SelectMany(track => track.Clips).Select(clip => clip.StartSeconds + clip.DurationSeconds)
@@ -215,8 +231,7 @@ public partial class MainWindow
             NestedSequenceId = nested.Sequence.Id, StartSeconds = _project.Sequence.PlayheadSeconds,
             DurationSeconds = duration };
         destination.Clips.Add(clip);
-        _selectedClip = clip;
-        _selectedTrack = destination;
+        SelectClip(clip);
         CommitProjectMediaChange("已嵌入序列", true);
     }
 
@@ -320,7 +335,7 @@ public partial class MainWindow
             (asset.DurationSeconds is > 0 && outPoint is double boundedOut &&
              boundedOut > asset.DurationSeconds + 0.01))
         {
-            ShowProjectMediaError("MED-SOURCE-RANGE", "源入出点无效或超出媒体时长。");
+            ShowProjectMediaError("PMEDA0012", "源入出点无效或超出媒体时长。");
             return;
         }
         SaveUndoState();
@@ -339,7 +354,7 @@ public partial class MainWindow
         if (!double.TryParse(time, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out double seconds) || !double.IsFinite(seconds) || seconds < 0 ||
             (asset.DurationSeconds is > 0 && seconds > asset.DurationSeconds))
-        { ShowProjectMediaError("MED-MARKER", "标记时间无效。"); return; }
+        { ShowProjectMediaError("PMEDA0050", "标记时间无效。"); return; }
         string? name = PromptText("源素材标记", "名称", "标记");
         if (string.IsNullOrWhiteSpace(name)) return;
         string? notes = PromptText("源素材标记", "备注", string.Empty);
@@ -369,10 +384,10 @@ public partial class MainWindow
 
     private void ShowProjectMediaError(string stageCode, string message, Exception? exception = null)
     {
+        stageCode = exception is null ? Tools.StageCodes.Normalize(stageCode) : Tools.StageCodes.Resolve(exception, stageCode);
         StatusText.Text = $"项目媒体操作失败 · {stageCode}";
-        MessageBox.Show(this, $"{message}\n阶段代码：{stageCode}" +
-            (exception is null ? string.Empty : $"\n{exception.Message}"),
-            "项目媒体操作失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        Tools.ErrorDialog.Show(this, stageCode, message +
+            (exception is null ? string.Empty : $"\n{exception.Message}"), exception);
     }
 }
 

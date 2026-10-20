@@ -20,6 +20,14 @@ public partial class MainWindow
     private bool _projectIoInProgress;
     private bool _projectCreated;
 
+    // Pointer edits mutate the live graph before they publish a revision.
+    // Snapshotting during that interval can otherwise save or restore half
+    // of a gesture while all revision comparisons still appear unchanged.
+    private bool HasActiveEditorGesture => _movingClip || _trimmingStart || _trimmingEnd ||
+        _scrubbingPlayhead || _draggingTrack is not null || _rubberBandDrag is not null ||
+        _bezierHandleDrag is not null || _draggingTitleClip is not null ||
+        _draggingMediaClip is not null || _vertexDragActive || _libraryDragInProgress;
+
     private void InitializeProjectCommands()
     {
         NewMenuItem.Click += (_, _) => NewProject();
@@ -39,12 +47,18 @@ public partial class MainWindow
 
     private void NewProject()
     {
-        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress ||
+            _historyOperationInProgress || HasActiveEditorGesture) return;
         if (!ConfirmDiscardChanges()) return;
+        ProjectDocument sourceProject = _project;
+        long sourceRevision = _projectRevision;
+        long sourceGeneration = _projectGeneration;
         ProjectPickerItem? aspect = PromptChoice("新建项目", "选择项目宽高比",
             [new(null, "16:9 横屏"), new("4:3", "4:3 传统横屏"), new("1:1", "1:1 方形"),
              new("9:16", "9:16 竖屏"), new("4:5", "4:5 社交竖屏")], "16:9");
         if (aspect is null) return;
+        if (!ReferenceEquals(sourceProject, _project) || sourceRevision != _projectRevision ||
+            sourceGeneration != _projectGeneration || HasActiveEditorGesture) return;
         ProjectDocument outgoing = _project;
         _project = ProjectDocument.CreateDefault();
         ApplyAspectRatio(_project.Sequence, aspect.Id ?? "16:9");
@@ -63,7 +77,8 @@ public partial class MainWindow
 
     private async Task OpenProjectAsync()
     {
-        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress ||
+            _historyOperationInProgress || HasActiveEditorGesture) return;
         if (!ConfirmDiscardChanges()) return;
 
         var dialog = new OpenFileDialog
@@ -85,7 +100,8 @@ public partial class MainWindow
     /// </summary>
     internal async Task OpenProjectPathAsync(string path, bool confirmDiscard = true)
     {
-        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress) return;
+        if (_projectIoInProgress || _exportInProgress || _autoSaveInProgress ||
+            _historyOperationInProgress || HasActiveEditorGesture) return;
         if (confirmDiscard && !ConfirmDiscardChanges()) return;
         _projectIoInProgress = true;
         long openingGeneration = _projectGeneration;
@@ -98,7 +114,8 @@ public partial class MainWindow
             ProjectDocument loaded = await ProjectFileService.LoadAsync(fullPath);
             // The file service resolves embedded archive entries to its
             // working cache. Legacy path references are resolved there too.
-            if (openingGeneration != _projectGeneration || openingRevision != _projectRevision)
+            if (openingGeneration != _projectGeneration || openingRevision != _projectRevision ||
+                HasActiveEditorGesture)
             {
                 StatusText.Text = "打开已取消：加载期间当前项目已修改";
                 await ProjectFileService.ReleaseCachedMediaAsync(loaded);
@@ -131,7 +148,7 @@ public partial class MainWindow
 
     private async Task SaveProjectAsync()
     {
-        if (_projectIoInProgress) return;
+        if (_projectIoInProgress || _historyOperationInProgress || HasActiveEditorGesture) return;
         if (_projectPath is null)
         {
             await SaveProjectAsAsync();
@@ -142,7 +159,7 @@ public partial class MainWindow
 
     private async Task<bool> SaveProjectAsAsync()
     {
-        if (_projectIoInProgress) return false;
+        if (_projectIoInProgress || _historyOperationInProgress || HasActiveEditorGesture) return false;
         var dialog = new SaveFileDialog
         {
             Title = "保存 TANGERINE 项目",
@@ -157,7 +174,7 @@ public partial class MainWindow
 
     private async Task<bool> SaveProjectToAsync(string path)
     {
-        if (_projectIoInProgress) return false;
+        if (_projectIoInProgress || _historyOperationInProgress || HasActiveEditorGesture) return false;
         _projectIoInProgress = true;
         try
         {
@@ -174,14 +191,15 @@ public partial class MainWindow
                 copy.Name = Path.GetFileNameWithoutExtension(path);
                 return copy;
             });
-            if (!ReferenceEquals(source, _project) || savedGeneration != _projectGeneration || savedRevision != _projectRevision)
+            if (!ReferenceEquals(source, _project) || savedGeneration != _projectGeneration ||
+                savedRevision != _projectRevision || HasActiveEditorGesture)
             {
                 StatusText.Text = "保存已取消：准备期间项目已修改，请重新保存";
                 return false;
             }
             await ProjectFileService.SaveAsync(stored, path);
             if (ReferenceEquals(source, _project) && savedGeneration == _projectGeneration &&
-                savedRevision == _projectRevision)
+                savedRevision == _projectRevision && !HasActiveEditorGesture)
             {
                 _project.Name = stored.Name;
                 _project.ModifiedUtc = stored.ModifiedUtc;
@@ -190,7 +208,7 @@ public partial class MainWindow
             }
             RefreshProjectChrome();
             bool currentSaved = ReferenceEquals(source, _project) && savedGeneration == _projectGeneration &&
-                savedRevision == _projectRevision;
+                savedRevision == _projectRevision && !HasActiveEditorGesture;
             StatusText.Text = currentSaved
                 ? $"已保存 {Path.GetFileName(path)}"
                 : ReferenceEquals(source, _project) && savedGeneration == _projectGeneration
@@ -229,6 +247,9 @@ public partial class MainWindow
 
     private void ResetEditorSession()
     {
+        StopCatalogPreview(restoreTimeline: false);
+        FinishLibraryDrag();
+        ClearRenderedPreviewFrame();
         InvalidateIdlePreview();
         _mediaMetadataCancellation?.Cancel();
         _mediaMetadataCancellation = null;
@@ -236,10 +257,15 @@ public partial class MainWindow
         _redoStates.Clear();
         _pendingDropBatches.Clear();
         ClearTimelineSelection();
+        _selectedBinId = null;
+        if (_soloTrackId is not null)
+        { _soloTrackId = null; _monitorStateRevision++; }
         _clipboardClip = null;
         PasteMenuItem.IsEnabled = false;
         TimelinePasteMenuItem.IsEnabled = false;
         _previewSourcePath = null;
+        _previewMediaOpenedPath = null;
+        _previewMediaFailedPath = null;
         _previewImageRequest++;
         _previewImageLoadingPath = null;
         _previewImageFailedPath = null;
@@ -248,8 +274,10 @@ public partial class MainWindow
         _lastTitleRangeEnd = double.NaN;
         _isPlaying = false;
         _playbackTimer.Stop();
+        _playbackClock.Stop();
         StopAudioPreview();
         PreviewMediaElement.Stop();
+        PreviewMediaElement.Close();
         PreviewMediaElement.Source = null;
         PreviewImage.Source = null;
         PlayPauseButton.Content = "▶";
@@ -289,13 +317,15 @@ public partial class MainWindow
 
     private void ShowProjectError(ProjectFileException exception)
     {
-        StatusText.Text = $"项目操作失败 · {exception.StageCode}";
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：{exception.StageCode}", "项目操作失败",
-            MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"项目操作失败 · {Tools.StageCodes.Resolve(exception, "PRJIO0900")}";
+        Tools.ErrorDialog.Show(this, "PRJIO0900", exception);
     }
 
     private async Task ReleaseProjectCacheSafelyAsync(ProjectDocument document)
     {
+        ProjectDocument owner = _project;
+        long generation = _projectGeneration;
+        long revision = _projectRevision;
         try
         {
             await McpWaitForProjectJobsAsync(document);
@@ -303,7 +333,9 @@ public partial class MainWindow
         }
         catch (ProjectFileException exception)
         {
-            StatusText.Text = $"旧项目缓存清理失败 · {exception.StageCode}";
+            System.Diagnostics.Debug.WriteLine($"{Tools.StageCodes.Resolve(exception, "PRJIO0901")}: {exception}");
+            if (ReferenceEquals(owner, _project) && generation == _projectGeneration && revision == _projectRevision)
+                StatusText.Text = $"旧项目缓存清理失败 · {Tools.StageCodes.Resolve(exception, "PRJIO0901")}";
         }
     }
 

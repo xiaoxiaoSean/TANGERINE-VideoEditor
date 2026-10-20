@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -27,18 +27,30 @@ public partial class MainWindow
     private string? _idleReadyPath;
     private double _idleReadyDuration;
     private bool _cachedPreviewSeekPending;
+    private bool _cachedPreviewOpened;
     private string? _cachedPreviewLoadedPath;
     private static string IdlePreviewDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "TANGERINE-VideoEditor", "cache", "timeline-v2");
+        "TANGERINE-VideoEditor", "cache", "timeline-v3");
 
     private void InitializeIdlePreview()
     {
         PreviewVisualLayer.Children.Add(_cachedPreviewPlayer);
-        _cachedPreviewPlayer.MediaOpened += (_, _) => { _cachedPreviewSeekPending = true; if (_isPlaying) _cachedPreviewPlayer.Play(); };
+        _cachedPreviewPlayer.MediaOpened += (_, _) =>
+        {
+            if (!OwnsCachedPreview()) return;
+            _cachedPreviewOpened = true;
+            _cachedPreviewPlayer.Position = TimeSpan.FromSeconds(_project.Sequence.PlayheadSeconds);
+            _cachedPreviewSeekPending = false;
+            _cachedPreviewPlayer.Visibility = Visibility.Visible;
+            PreviewPlaceholder.Visibility = Visibility.Collapsed;
+            _cachedPreviewPlayer.Play();
+        };
         _cachedPreviewPlayer.MediaFailed += (_, args) =>
         {
-            _idleReadyRevision = -1; StopCachedPreview();
-            StatusText.Text = $"后台预览读取失败 · PREVIEW-CACHE-PLAY：{args.ErrorException.Message}";
+            if (!OwnsCachedPreview()) return;
+            _idleReadyRevision = -1; _idleReadyPath = null; StopCachedPreview();
+            SeekPreview(_project.Sequence.PlayheadSeconds);
+            StatusText.Text = $"后台预览读取失败 · PRVEW0010：{args.ErrorException.Message}";
         };
         // Input only defers/cancels speculative work; it never changes the project.
         PreviewKeyDown += (_, _) => DeferIdlePreview();
@@ -47,8 +59,8 @@ public partial class MainWindow
         PreviewMouseMove += (_, args) => { if (args.LeftButton == MouseButtonState.Pressed) DeferIdlePreview(); };
         _idlePreviewTimer.Tick += async (_, _) =>
         {
-            if (_idlePreviewBusy && (_isPlaying || _exportInProgress || McpControlBusy)) { _idlePreviewCancellation?.Cancel(); return; }
-            if (_exportInProgress || McpControlBusy || _isPlaying || _catalogPreviewActive || _catalogPreviewPending || Environment.TickCount64 - _lastPreviewInput < 2000 || _idlePreviewBusy ||
+            if (_idlePreviewBusy && (_isPlaying || _exportInProgress || McpControlBusy || BuiltinMusicOwnsMonitor)) { _idlePreviewCancellation?.Cancel(); return; }
+            if (_exportInProgress || McpControlBusy || _isPlaying || _catalogPreviewActive || _catalogPreviewPending || BuiltinMusicOwnsMonitor || Environment.TickCount64 - _lastPreviewInput < 2000 || _idlePreviewBusy ||
                 _idleAttemptRevision == _projectRevision && _idleAttemptGeneration == _projectGeneration) return;
             await BuildIdlePreviewAsync();
         };
@@ -72,31 +84,58 @@ public partial class MainWindow
 
     private void StopCachedPreview()
     {
-        if (!_cachedPreviewActive) return;
-        _cachedPreviewPlayer.Pause(); _cachedPreviewPlayer.Visibility = Visibility.Collapsed;
-        _cachedPreviewActive = false; PreviewOverlay.Opacity = 1;
+        if (!_cachedPreviewActive && _cachedPreviewPlayer.Source is null) return;
+        // Close pending loads as well as active playback. A delayed MediaOpened
+        // must never restart an obsolete cache after another monitor takes over.
+        _cachedPreviewActive = false;
+        _cachedPreviewOpened = false;
+        _cachedPreviewSeekPending = false;
+        _cachedPreviewLoadedPath = null;
+        _cachedPreviewPlayer.Close();
+        _cachedPreviewPlayer.Source = null;
+        _cachedPreviewPlayer.Visibility = Visibility.Collapsed;
+        PreviewOverlay.Opacity = 1;
     }
+
+    private bool OwnsCachedPreview() => _cachedPreviewActive && _isPlaying &&
+        _playbackDirection == 1 && !_scrubbingPlayhead && !_catalogPreviewActive && !_catalogPreviewPending &&
+        !BuiltinMusicOwnsMonitor &&
+        _idleReadyRevision == _projectRevision && _idleReadyGeneration == _projectGeneration &&
+        _cachedPreviewLoadedPath is not null && _cachedPreviewLoadedPath == _idleReadyPath &&
+        _cachedPreviewPlayer.Source?.IsFile == true &&
+        string.Equals(_cachedPreviewPlayer.Source.LocalPath, _cachedPreviewLoadedPath, StringComparison.OrdinalIgnoreCase);
 
     private bool TryShowCachedPreview(double seconds)
     {
-        if (!_isPlaying || _playbackDirection != 1 || _scrubbingPlayhead ||
+        if (!_isPlaying || _playbackDirection != 1 || _scrubbingPlayhead || BuiltinMusicOwnsMonitor ||
             _idleReadyRevision != _projectRevision || _idleReadyGeneration != _projectGeneration ||
             _idleReadyPath is null || seconds >= _idleReadyDuration) { StopCachedPreview(); return false; }
         if (!_cachedPreviewActive)
         {
             ClearRenderedPreviewFrame();
+            // An old image decode can finish after the cache becomes visible.
+            // Revoke that request before giving the cached player the monitor.
+            _previewImageRequest++;
+            _previewImageLoadingPath = null;
+            _previewImageFailedPath = null;
+            _previewSourcePath = null;
+            PreviewImage.Source = null;
+            _cachedPreviewActive = true;
+            _cachedPreviewOpened = false;
             _cachedPreviewPlayer.Width = PreviewVisualLayer.Width; _cachedPreviewPlayer.Height = PreviewVisualLayer.Height;
             if (_cachedPreviewLoadedPath != _idleReadyPath)
             {
                 _cachedPreviewPlayer.Source = new Uri(_idleReadyPath); _cachedPreviewLoadedPath = _idleReadyPath;
             }
             _cachedPreviewSeekPending = true;
-            _cachedPreviewPlayer.Visibility = Visibility.Visible;
-            PreviewImage.Visibility = PreviewMediaElement.Visibility = PreviewPlaceholder.Visibility = Visibility.Collapsed;
+            _cachedPreviewPlayer.Visibility = Visibility.Collapsed;
+            PreviewImage.Visibility = PreviewMediaElement.Visibility = Visibility.Collapsed;
+            PreviewPlaceholder.Visibility = Visibility.Visible;
+            PreviewMessage.Text = "正在加载后台预览…";
             PreviewMediaElement.Pause();
-            PreviewOverlay.Opacity = 0; _cachedPreviewActive = true; _cachedPreviewPlayer.Play();
+            PreviewOverlay.Opacity = 0; _cachedPreviewPlayer.Play();
         }
-        if (_cachedPreviewSeekPending || Math.Abs(_cachedPreviewPlayer.Position.TotalSeconds - seconds) > .18)
+        if (_cachedPreviewOpened && (_cachedPreviewSeekPending || Math.Abs(_cachedPreviewPlayer.Position.TotalSeconds - seconds) > .18))
         {
             _cachedPreviewPlayer.Position = TimeSpan.FromSeconds(seconds); _cachedPreviewSeekPending = false;
         }
@@ -107,6 +146,7 @@ public partial class MainWindow
     private async Task BuildIdlePreviewAsync()
     {
         _idlePreviewBusy = true;
+        ProjectDocument project = _project;
         long revision = _projectRevision, generation = _projectGeneration;
         _idleAttemptRevision = revision; _idleAttemptGeneration = generation;
         _idlePreviewCancellation?.Dispose();
@@ -115,7 +155,7 @@ public partial class MainWindow
         string? scratch = null;
         try
         {
-            ProjectDocument snapshot = JsonSerializer.Deserialize<ProjectDocument>(JsonSerializer.Serialize(_project))!;
+            ProjectDocument snapshot = JsonSerializer.Deserialize<ProjectDocument>(JsonSerializer.Serialize(project))!;
             double targetWidth = Math.Max(16, PreviewVisualLayer.Width) * Math.Max(1, PreviewZoomSlider.Value) * PreviewResolutionRatio;
             double targetHeight = targetWidth * snapshot.Sequence.Height / snapshot.Sequence.Width;
             double limit = Math.Min(1, 4096 / Math.Max(targetWidth, targetHeight));
@@ -139,9 +179,13 @@ public partial class MainWindow
                     string path = Path.Combine(IdlePreviewDirectory, segment.Key + ".mp4");
                     if (!File.Exists(path))
                     {
+                        // Publish only complete segments. A cancelled export
+                        // otherwise leaves a truncated final cache entry that
+                        // future builds would accept merely because it exists.
+                        string rendered = Path.Combine(scratch, segment.Key + ".mp4");
                         try
                         {
-                            await Task.Run(() => TimelineExporter.ExportMp4Async(snapshot, path, titles, cancellationToken: token,
+                            await Task.Run(() => TimelineExporter.ExportMp4Async(snapshot, rendered, titles, cancellationToken: token,
                                 settings: new VideoExportSettings(Width: width, Height: height, StartSeconds: segment.Start,
                                     EndSeconds: segment.End), previewEncoding: profile), token);
                         }
@@ -149,13 +193,17 @@ public partial class MainWindow
                         {
                             token.ThrowIfCancellationRequested();
                             profile.MarkUnavailable(); profile = PreviewEncodingProfile.Software;
-                            await Task.Run(() => TimelineExporter.ExportMp4Async(snapshot, path, titles, cancellationToken: token,
+                            await Task.Run(() => TimelineExporter.ExportMp4Async(snapshot, rendered, titles, cancellationToken: token,
                                 settings: new VideoExportSettings(Width: width, Height: height, StartSeconds: segment.Start,
                                     EndSeconds: segment.End), previewEncoding: PreviewEncodingProfile.Software), token);
                         }
+                        token.ThrowIfCancellationRequested();
+                        File.Move(rendered, path, true);
                     }
                     completed++;
-                    if (revision == _projectRevision && generation == _projectGeneration)
+                    if (!token.IsCancellationRequested && ReferenceEquals(project, _project) &&
+                        revision == _projectRevision && generation == _projectGeneration &&
+                        !_catalogPreviewActive && !_catalogPreviewPending && !BuiltinMusicOwnsMonitor)
                         StatusText.Text = $"后台预览缓存 {completed}/{plan.Count} · {profile.DisplayName}";
                 }
                 string manifest = Path.Combine(scratch, "segments.txt");
@@ -176,9 +224,10 @@ public partial class MainWindow
                 token.ThrowIfCancellationRequested();
                 File.Move(assembled, final, true);
             }
-            if (revision != _projectRevision || generation != _projectGeneration || token.IsCancellationRequested) return;
+            if (!ReferenceEquals(project, _project) || revision != _projectRevision || generation != _projectGeneration || token.IsCancellationRequested) return;
             _idleReadyPath = final; _idleReadyRevision = revision; _idleReadyGeneration = generation; _idleReadyDuration = plan[^1].End;
-            StatusText.Text = "整个工程的后台预览已就绪 · 编辑后仅重建受影响时间段";
+            if (!_catalogPreviewActive && !_catalogPreviewPending && !BuiltinMusicOwnsMonitor)
+                StatusText.Text = "整个工程的后台预览已就绪 · 编辑后仅重建受影响时间段";
             // Keep the active playlist and reusable intervals; prune old disposable files.
             var keep = plan.Select(s => s.Key + ".mp4").Append(finalKey + ".mp4").ToHashSet();
             await Task.Run(() =>
@@ -194,11 +243,17 @@ public partial class MainWindow
             }, token);
         }
         catch (OperationCanceledException) { _idleAttemptRevision = -1; }
-        catch (Exception exception) { StatusText.Text = $"后台预览失败 · PREVIEW-CACHE-RENDER：{exception.Message}"; }
+        catch (Exception exception)
+        {
+            if (!token.IsCancellationRequested && ReferenceEquals(project, _project) &&
+                revision == _projectRevision && generation == _projectGeneration &&
+                !_catalogPreviewActive && !_catalogPreviewPending && !BuiltinMusicOwnsMonitor)
+                StatusText.Text = $"后台预览失败 · PRVEW0011：{exception.Message}";
+        }
         finally
         {
             _idlePreviewBusy = false;
-            if (scratch is not null) try { await Task.Run(() => Directory.Delete(scratch, true)); } catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { Debug.WriteLine($"PREVIEW-CACHE-CLEANUP: {exception}"); }
+            if (scratch is not null) try { await Task.Run(() => Directory.Delete(scratch, true)); } catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { Debug.WriteLine($"PRVEW0012: {exception}"); }
         }
     }
 }

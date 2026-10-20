@@ -22,6 +22,9 @@ public partial class MainWindow
 {
     private WaveInRecorder? _mcpRecorder;
     private ProjectDocument? _mcpRecordingProject;
+    private long _mcpRecordingProjectGeneration;
+    private string? _mcpRecordingSequenceId;
+    private long _mcpRecordingRequest;
     private string? _mcpRecordingTrackId;
     private double _mcpRecordingStart;
     private bool _mcpRecordingBusy;
@@ -141,10 +144,7 @@ public partial class MainWindow
                     _projectPath = null;
                     _projectCreated = true;
                     _projectGeneration++;
-                    _sourceMonitor?.Close();
-                    _selectedClip = null;
-                    _selectedClips.Clear();
-                    _selectedTrack = null;
+                    ClearTimelineSelection();
                 });
                 return new { path, format, imported.Name };
             }
@@ -209,20 +209,53 @@ public partial class MainWindow
     private object McpExportStart(JsonObject args)
     {
         string path = McpFeatureOutputPath(args, ".mp4");
-        ProjectDocument snapshot = PrepareExportSequence(McpFeatureSnapshot(),
-            McpString(args, "sequenceId", _project.Sequence.Id));
+        ProjectDocument queuedProject = McpFeatureSnapshot();
+        string sequenceId = McpString(args, "sequenceId", _project.Sequence.Id);
         VideoExportSettings settings = args["settings"]?.Deserialize<VideoExportSettings>(
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new VideoExportSettings();
-        return McpStartJob("导出视频", async (progress, token) =>
+        return McpStartJob("导出视频", async (job, progress, token) =>
         {
             string temporary = Path.Combine(Path.GetTempPath(), $"tangerine-mcp-export-{Guid.NewGuid():N}");
+            ExportProgressPresenter? progressWindow = null;
             try
             {
+                // A job executes on the pool; all WPF construction stays on
+                // the editor dispatcher and is bound to this exact job ID.
+                try
+                {
+                    progressWindow = await McpOnUiAsync(() =>
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (!_mcpJobs.TryGetValue(job.Id, out McpJob? current) || !ReferenceEquals(current, job) ||
+                            job.OwnerSessionId != _mcpControlOwnerSessionId)
+                            throw new StageException("EXPRT0901", "导出任务已不属于当前 MCP 操作会话。");
+                        return new ExportProgressPresenter(this, path, job.Id);
+                    });
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception exception)
+                { throw new StageException("EXPRT0901", "无法显示 MCP 导出进度窗口。", exception); }
+                token.ThrowIfCancellationRequested();
+                ProjectDocument snapshot = PrepareExportSequence(queuedProject, sequenceId);
+                await UpdateMcpExportProgressAsync(job, progressWindow,
+                    view => view.Prepare($"正在准备序列“{snapshot.Sequence.Name}”的文字与图形…"));
                 Dictionary<string, string> titles = await RenderTitlesAsync(snapshot, temporary, token);
-                await TimelineExporter.ExportMp4Async(snapshot, path, titles, progress, token, settings);
+                token.ThrowIfCancellationRequested();
+                await UpdateMcpExportProgressAsync(job, progressWindow, view => view.Encode(0));
+                var encodingProgress = new McpProgress(ratio =>
+                {
+                    progress.Report(ratio);
+                    _ = UpdateMcpExportProgressAsync(job, progressWindow, view => view.Encode(ratio));
+                });
+                await TimelineExporter.ExportMp4Async(snapshot, path, titles, encodingProgress, token, settings);
                 return new { path, sequenceId = snapshot.Sequence.Id };
             }
-            finally { McpFeatureDeleteDirectory(temporary); }
+            finally
+            {
+                if (progressWindow is not null)
+                    await CloseMcpExportProgressAsync(job, progressWindow);
+                McpFeatureDeleteDirectory(temporary);
+            }
         });
     }
 
@@ -801,6 +834,9 @@ public partial class MainWindow
             throw McpFeatureError("录音插入时间无效。");
         uint deviceId = checked((uint)McpInt(args, "deviceId"));
         ProjectDocument owner = _project;
+        long generation = _projectGeneration;
+        string sequenceId = _project.Sequence.Id;
+        long request = ++_mcpRecordingRequest;
         var recorder = new WaveInRecorder();
         _mcpRecordingBusy = true;
         try
@@ -808,7 +844,11 @@ public partial class MainWindow
             await Task.Run(() => recorder.Start(deviceId), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (_mcpFeaturesDisposed) throw McpFeatureError("编辑窗口正在关闭，录音已中止。");
+            if (request != _mcpRecordingRequest || !ReferenceEquals(owner, _project) ||
+                generation != _projectGeneration || sequenceId != _project.Sequence.Id)
+                throw new StageException("MCPRT0003", "录音启动期间项目或序列已切换，录音已中止。");
             _mcpRecorder = recorder; _mcpRecordingProject = owner;
+            _mcpRecordingProjectGeneration = generation; _mcpRecordingSequenceId = sequenceId;
             _mcpRecordingTrackId = trackId; _mcpRecordingStart = start;
             StatusText.Text = "MCP 正在录制画外音";
             return new { recording = true, deviceId, startSeconds = start };
@@ -821,6 +861,14 @@ public partial class MainWindow
     {
         string path = McpFeatureOutputPath(args, ".wav");
         WaveInRecorder recorder = _mcpRecorder ?? throw McpFeatureError("没有正在进行的 MCP 录音。");
+        ProjectDocument? owner = _mcpRecordingProject;
+        long generation = _mcpRecordingProjectGeneration;
+        string? sequenceId = _mcpRecordingSequenceId;
+        long request = _mcpRecordingRequest;
+        double start = _mcpRecordingStart;
+        string? targetTrackId = _mcpRecordingTrackId;
+        bool IsCurrentRecording() => request == _mcpRecordingRequest && !_mcpFeaturesDisposed &&
+            ReferenceEquals(owner, _project) && generation == _projectGeneration && sequenceId == _project.Sequence.Id;
         _mcpRecorder = null;
         _mcpRecordingBusy = true;
         try
@@ -830,9 +878,9 @@ public partial class MainWindow
             await EnsureVoiceOverSpaceAsync(path, samples.LongLength);
             await WaveInRecorder.WriteWaveAsync(path, samples, cancellationToken);
             if (!McpBool(args, "insert", true)) return new { path, durationSeconds = duration, inserted = false };
-            if (!ReferenceEquals(_mcpRecordingProject, _project))
-                throw McpFeatureError("录音已保存；项目已切换，未插入时间线。");
-            if (duration < .01 || _mcpRecordingStart + duration > 24 * 3600)
+            if (!IsCurrentRecording())
+                throw McpFeatureError("录音已保存；录音已取消或项目、序列已切换，未插入时间线。");
+            if (duration < .01 || start + duration > 24 * 3600)
                 throw McpFeatureError("录音已保存；时长不足或超出时间线范围。");
             string[] projected = _project.Media.SelectMany(asset => new[] { asset.SourcePath, asset.ProxyPath })
                 .Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Append(path).ToArray();
@@ -840,8 +888,8 @@ public partial class MainWindow
                 await ProjectFileService.EnsureImportCapacityAsync(projectPath, projected, cancellationToken);
             else await ProjectFileService.EnsureImportCapacityAsync(projected, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            if (!ReferenceEquals(_mcpRecordingProject, _project))
-                throw McpFeatureError("录音已保存；空间检查期间项目已切换，未插入时间线。");
+            if (!IsCurrentRecording())
+                throw McpFeatureError("录音已保存；空间检查期间录音已取消或项目、序列已切换，未插入时间线。");
             var asset = new MediaAsset
             {
                 Name = Path.GetFileName(path), Kind = MediaKind.Audio, SourcePath = path,
@@ -851,11 +899,11 @@ public partial class MainWindow
             var clip = new TimelineClip
             {
                 Name = asset.Name, Kind = ClipKind.Audio, MediaAssetId = asset.Id,
-                StartSeconds = _mcpRecordingStart, DurationSeconds = duration
+                StartSeconds = start, DurationSeconds = duration
             };
             McpMutate("MCP 插入画外音", () =>
             {
-                TimelineTrack? track = _mcpRecordingTrackId is { Length: > 0 } id
+                TimelineTrack? track = targetTrackId is { Length: > 0 } id
                     ? McpTrack(id) : _project.Tracks.FirstOrDefault(item => item.Kind == TrackKind.Audio && !item.IsLocked);
                 if (track is null)
                 {
@@ -869,7 +917,12 @@ public partial class MainWindow
             });
             return new { path, durationSeconds = duration, inserted = true, assetId = asset.Id, clipId = clip.Id };
         }
-        finally { recorder.Dispose(); _mcpRecordingBusy = false; _mcpRecordingProject = null; }
+        finally
+        {
+            recorder.Dispose(); _mcpRecordingBusy = false;
+            if (request == _mcpRecordingRequest)
+            { _mcpRecordingProject = null; _mcpRecordingSequenceId = null; _mcpRecordingTrackId = null; }
+        }
     }
 
     private object McpRecognizeStart(JsonObject args)
@@ -1246,7 +1299,9 @@ public partial class MainWindow
 
     private void McpCancelVoiceover()
     {
+        _mcpRecordingRequest++;
         _mcpRecorder?.Dispose();
         _mcpRecorder = null; _mcpRecordingProject = null;
+        _mcpRecordingSequenceId = null; _mcpRecordingTrackId = null;
     }
 }

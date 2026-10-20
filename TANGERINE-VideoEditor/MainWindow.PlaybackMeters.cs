@@ -12,6 +12,7 @@ public partial class MainWindow
     private (double Left, double Right)[] _meterSamples = [];
     private string? _meterPath;
     private double _meterStart;
+    private long _meterRequest;
     private double _meterPeakL, _meterPeakR;
     private long _meterPeakUntil;
     private bool _meterClipped;
@@ -23,11 +24,13 @@ public partial class MainWindow
     }
     private async Task LoadPlaybackMeterAsync(string path, double start)
     {
+        long request = ++_meterRequest;
         _meterPath = path; _meterStart = start; _meterSamples = [];
         try
         {
             var samples = await Task.Run(() => ReadMeterPcm(path));
-            if (_meterPath == path) _meterSamples = samples;
+            if (request == _meterRequest && _meterPath == path && _timelineAudioFile == path)
+                _meterSamples = samples;
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"AUMTR0001: {ex}"); }
     }

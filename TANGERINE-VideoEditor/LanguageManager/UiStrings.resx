@@ -101,7 +101,7 @@
     <value>程序可能没有访问该文件或文件夹的权限。</value>
   </data>
   <data name="ErrorActionPermission" xml:space="preserve">
-    <value>请以管理员身份运行，或检查文件和文件夹的访问权限。</value>
+    <value>请选择有访问权限的位置，检查文件属性和目录权限；系统设置操作可按提示授权。</value>
   </data>
   <data name="ErrorCauseMissing" xml:space="preserve">
     <value>找不到指定的文件或文件夹。</value>
@@ -126,5 +126,47 @@
   </data>
   <data name="ErrorActionTimeline" xml:space="preserve">
     <value>请检查片段位置、轨道锁定状态和序列设置。</value>
+  </data>
+  <data name="ErrorCauseTool" xml:space="preserve">
+    <value>本地编码器或所需系统组件缺失、不可启动，或者当前设备不支持所选处理方式。</value>
+  </data>
+  <data name="ErrorActionTool" xml:space="preserve">
+    <value>请检查软件资源和本地 FFmpeg 是否完整，尝试软件编码；若仍失败，请记录阶段码与详细错误。</value>
+  </data>
+  <data name="ErrorCauseSettings" xml:space="preserve">
+    <value>模板、预设或工作区设置无法读取，或者其中的参数不受支持。</value>
+  </data>
+  <data name="ErrorActionSettings" xml:space="preserve">
+    <value>请重新选择有效的模板或预设，检查设置文件路径与写入权限后重试。</value>
+  </data>
+  <data name="ErrorCauseFormat" xml:space="preserve">
+    <value>输入文件的内容或格式无效、数据不完整，或者文件版本不受支持。</value>
+  </data>
+  <data name="ErrorActionFormat" xml:space="preserve">
+    <value>请确认选择了正确且完整的文件，使用兼容格式重新导入，并保留原文件以便排查。</value>
+  </data>
+  <data name="ErrorCauseValidation" xml:space="preserve">
+    <value>输入参数、文件路径、时间范围或数值格式不符合本次操作的要求。</value>
+  </data>
+  <data name="ErrorActionValidation" xml:space="preserve">
+    <value>请检查输入值与单位，确认时间范围有效、路径完整，并按界面的参数范围重新设置。</value>
+  </data>
+  <data name="ErrorCauseState" xml:space="preserve">
+    <value>当前工程、选择对象或设备状态已变化，原操作无法继续。</value>
+  </data>
+  <data name="ErrorActionState" xml:space="preserve">
+    <value>请重新选择目标对象，确认工程和设备状态正常后再执行操作。</value>
+  </data>
+  <data name="ErrorCauseCancelled" xml:space="preserve">
+    <value>操作已被取消，或者切换工程、选择及窗口时原请求已失效。</value>
+  </data>
+  <data name="ErrorActionCancelled" xml:space="preserve">
+    <value>如仍需执行，请在当前工程中重新发起操作，并等待其完成。</value>
+  </data>
+  <data name="ErrorCauseTimeout" xml:space="preserve">
+    <value>本地处理、设备响应或进程通信超过了允许的等待时间。</value>
+  </data>
+  <data name="ErrorActionTimeout" xml:space="preserve">
+    <value>请检查目标进程与存储设备是否正常，等待当前任务结束后重试。</value>
   </data>
 </root>

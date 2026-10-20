@@ -77,8 +77,8 @@ public partial class MainWindow
             return;
 
         args.Handled = true;
-        _selectedClip = clip;
-        _selectedTrack = track;
+        if (!_project.Tracks.Contains(track) || !track.Clips.Contains(clip)) return;
+        SelectClip(clip);
         EditSelectedEffects();
         DrawTimeline();
     }
@@ -95,8 +95,8 @@ public partial class MainWindow
         {
             AddContextCommand(menu, "编辑所有效果…", () =>
             {
-                _selectedClip = clip;
-                _selectedTrack = track;
+                if (!_project.Tracks.Contains(track) || !track.Clips.Contains(clip)) return;
+                SelectClip(clip);
                 EditSelectedEffects();
             });
 
@@ -119,8 +119,9 @@ public partial class MainWindow
                 };
                 editItem.Click += (_, _) =>
                 {
-                    _selectedClip = clip;
-                    _selectedTrack = track;
+                    if (!_project.Tracks.Contains(track) || !track.Clips.Contains(clip) ||
+                        !clip.Effects.Contains(effect)) return;
+                    SelectClip(clip);
                     EditSelectedEffects();
                 };
                 effectItem.Items.Add(editItem);
@@ -133,11 +134,15 @@ public partial class MainWindow
                 };
                 removeItem.Click += (_, _) =>
                 {
+                    if (!_project.Tracks.Contains(track) || track.IsLocked ||
+                        !track.Clips.Contains(clip) || !clip.Effects.Contains(effect)) return;
+                    SelectClip(clip);
                     SaveUndoState();
                     clip.Effects.Remove(effect);
                     MarkProjectDirty();
                     DrawTimeline();
                     SeekPreview(_project.Sequence.PlayheadSeconds);
+                    ShowSelectedObjectSettings();
                     StatusText.Text = $"已删除效果：{effect.Name}";
                 };
                 effectItem.Items.Add(removeItem);
@@ -149,12 +154,15 @@ public partial class MainWindow
 
             AddContextCommand(menu, "清除所有效果", () =>
             {
+                if (!_project.Tracks.Contains(track) || track.IsLocked || !track.Clips.Contains(clip)) return;
+                SelectClip(clip);
                 SaveUndoState();
                 int count = clip.Effects.Count;
                 clip.Effects.Clear();
                 MarkProjectDirty();
                 DrawTimeline();
                 SeekPreview(_project.Sequence.PlayheadSeconds);
+                ShowSelectedObjectSettings();
                 StatusText.Text = $"已清除 {count} 个效果";
             });
         }

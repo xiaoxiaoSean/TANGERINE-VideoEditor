@@ -167,7 +167,12 @@ public partial class MainWindow
                 track.Clips.Contains(selected)) &&
             now >= selected.StartSeconds && now < selected.StartSeconds + selected.DurationSeconds)
             return selected;
-        return _activePreviewVisualClip;
+        TimelineClip? active = _activePreviewVisualClip;
+        return active is { Kind: ClipKind.Image or ClipKind.Video } &&
+            _project.Tracks.Any(track => !track.IsHidden && track.Kind != TrackKind.Audio &&
+                track.Clips.Contains(active)) &&
+            now >= active.StartSeconds && now < active.StartSeconds + active.DurationSeconds
+                ? active : null;
     }
 
     private static Point RotatedPoint(double centerX, double centerY, double x, double y, double angle)
@@ -294,6 +299,10 @@ public partial class MainWindow
 
     private bool CanInteractWithMediaClip(TimelineClip clip)
     {
+        if (_catalogPreviewActive || _catalogPreviewPending || _cachedPreviewActive || BuiltinMusicOwnsMonitor) return false;
+        if (clip.Kind is not (ClipKind.Image or ClipKind.Video) ||
+            !_project.Tracks.Any(track => !track.IsHidden && track.Kind != TrackKind.Audio &&
+                track.Clips.Contains(clip))) return false;
         if (_renderedPreviewClipId == "composite")
             return PreviewRenderedFrame.Visibility == Visibility.Visible;
         if (_activePreviewVisualSourcePath != _previewSourcePath) return false;
@@ -364,6 +373,12 @@ public partial class MainWindow
 
     private void StartMediaDrag(MouseButtonEventArgs args)
     {
+        if (_cachedPreviewActive)
+        {
+            if (_isPlaying) TogglePlayback();
+            else { StopCachedPreview(); SeekPreview(_project.Sequence.PlayheadSeconds); }
+        }
+        if (_draggingMediaClip is not null) FinishMediaDrag();
         TimelineClip? clip = InteractiveMediaClip();
         if (clip is null || !CanInteractWithMediaClip(clip)) return;
         Point point = args.GetPosition(PreviewOverlay);
@@ -371,10 +386,14 @@ public partial class MainWindow
         var bounds = MediaBounds(clip);
         if (bounds is null) return;
         _selectedClip = clip;
+        ClearTransitionSelection();
+        _selectedKeyframe = null;
         _selectedTrack = _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
+        _contextTrack = _selectedTrack;
         _selectedClips.Clear();
         _selectedClips.Add(clip);
         DrawTimeline();
+        ShowSelectedObjectSettings();
         _lastTitleLayoutKey = null;
         DrawTextOverlay();
         if (_selectedTrack?.IsLocked == true)
@@ -431,7 +450,7 @@ public partial class MainWindow
         {
             _draggingMediaClip = null;
             _mediaDraggingComposite = false;
-            StatusText.Text = "无法捕获鼠标，画面拖动未开始 · PREVIEW-INPUT";
+            StatusText.Text = "无法捕获鼠标，画面拖动未开始 · PRVEW0006";
             return;
         }
         args.Handled = true;
@@ -440,7 +459,13 @@ public partial class MainWindow
     private void MoveMediaDrag(MouseEventArgs args)
     {
         TimelineClip? clip = _draggingMediaClip;
-        if (clip is null || args.LeftButton != MouseButtonState.Pressed) return;
+        if (clip is null) return;
+        if (args.LeftButton != MouseButtonState.Pressed || !IsCurrentEditableClip(clip))
+        {
+            FinishMediaDrag();
+            if (PreviewOverlay.IsMouseCaptured) PreviewOverlay.ReleaseMouseCapture();
+            return;
+        }
         Point point = args.GetPosition(PreviewOverlay);
         Vector delta = point - _mediaDragStart;
         if (!_mediaDragChanged && Math.Abs(delta.X) + Math.Abs(delta.Y) < 2) return;
@@ -573,7 +598,8 @@ public partial class MainWindow
             _compositeDragRenderTimer.Tick += (_, _) =>
             {
                 _compositeDragRenderTimer.Stop();
-                if (_draggingMediaClip is null || !_mediaDraggingComposite) return;
+                if (_draggingMediaClip is null || !_mediaDraggingComposite ||
+                    !IsCurrentEditableClip(_draggingMediaClip)) return;
                 _renderedPreviewKey = null;
                 ScheduleRenderedPreviewFrame(_draggingMediaClip);
             };
@@ -635,8 +661,8 @@ public partial class MainWindow
     private void EndMediaDrag(MouseButtonEventArgs args)
     {
         if (_draggingMediaClip is null) return;
-        PreviewOverlay.ReleaseMouseCapture();
         FinishMediaDrag();
+        if (PreviewOverlay.IsMouseCaptured) PreviewOverlay.ReleaseMouseCapture();
         args.Handled = true;
     }
 
@@ -649,7 +675,7 @@ public partial class MainWindow
         _draggingMediaClip = null;
         _mediaDraggingComposite = false;
         _mediaDragChanged = false;
-        if (!changed) return;
+        if (!changed || !_project.Tracks.Any(track => track.Clips.Contains(clip))) return;
         MarkProjectDirty();
         StatusText.Text = $"已调整画面：{clip.Name}";
         _lastTitleLayoutKey = null;

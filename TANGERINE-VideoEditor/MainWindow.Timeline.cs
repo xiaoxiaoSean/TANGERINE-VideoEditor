@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -37,6 +37,10 @@ public partial class MainWindow
     private bool _movingClip;
     private bool _trimmingStart;
     private bool _trimmingEnd;
+    // A gesture owns a particular model object. The selection can change via
+    // another command while capture is being released, so it is not a safe
+    // substitute for the object whose original values were snapshotted.
+    private TimelineClip? _clipGestureClip;
     private readonly System.Windows.Threading.DispatcherTimer _clipEdgeScrollTimer = new()
     { Interval = TimeSpan.FromMilliseconds(35) };
     private Point _moveOrigin;
@@ -248,6 +252,8 @@ public partial class MainWindow
     /// </summary>
     private void ClearTimelineSelection()
     {
+        ResetTimelineGestureState();
+        ResetPreviewInteractionState();
         ClearTransitionSelection();
         _selectedClip = null;
         _selectedKeyframe = null;
@@ -257,6 +263,42 @@ public partial class MainWindow
         _moveCompanionOriginalStarts.Clear();
         if (SettingsHost is not null) CloseSettingsTabs();
     }
+
+    private void ResetClipGestureState()
+    {
+        _clipEdgeScrollTimer.Stop();
+        _movingClip = false;
+        _trimmingStart = false;
+        _trimmingEnd = false;
+        _clipGestureClip = null;
+        _moveOriginalTrack = null;
+        _moveOriginalProjectJson = null;
+        _moveOriginalTimeRemap = null;
+        _moveOriginalKeyframes = null;
+        _moveCompanionOriginalStarts.Clear();
+    }
+
+    private void ResetTimelineGestureState()
+    {
+        // Clear the state before releasing capture: LostMouseCapture must not
+        // commit a gesture from the sequence that has just been replaced.
+        ResetClipGestureState();
+        _rubberBandDrag = null;
+        _bezierHandleDrag = null;
+        _scrubbingPlayhead = false;
+        _draggingTrack = null;
+        _trackDragFromLane = false;
+        _trackDragStarted = false;
+        _trackDragTargetIndex = -1;
+        StopTrackDragEdgeScroll();
+        HideTrackDragBlock();
+        RemoveDropGhost();
+        if (TimelineCanvas?.IsMouseCaptured == true) TimelineCanvas.ReleaseMouseCapture();
+    }
+
+    private bool IsCurrentEditableClip(TimelineClip clip) =>
+        ReferenceEquals(_selectedClip, clip) &&
+        _project.Tracks.FirstOrDefault(track => track.Clips.Contains(clip)) is { IsLocked: false };
 
     private void PromptAddTrack()
     {
@@ -538,6 +580,7 @@ public partial class MainWindow
 
     private void TimelineCanvas_TrackPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs args)
     {
+        if (BuiltinMusicOwnsMonitor) StopBuiltinMusicPreview();
         TimelineTrack? track = FindTrackHeader(args.OriginalSource as DependencyObject)?.Tag as TimelineTrack;
         _trackDragFromLane = track is null;
         if (track is null)
@@ -554,19 +597,32 @@ public partial class MainWindow
             if (index < 0 || index >= _project.Tracks.Count) return;
             track = _project.Tracks[index];
         }
-        if (track.IsLocked) return;
         if (_scrubbingPlayhead || _movingClip || _trimmingStart || _trimmingEnd ||
             _rubberBandDrag is not null || _bezierHandleDrag is not null) return;
         _selectedTrack = track;
         _contextTrack = track;
         _selectedClip = null;
+        _selectedKeyframe = null;
         _selectedClips.Clear();
+        ClearTransitionSelection();
         CloseSettingsTabs();
+        if (track.IsLocked)
+        {
+            DrawTimeline();
+            StatusText.Text = $"已选择轨道：{track.Name}（已锁定）";
+            args.Handled = true;
+            return;
+        }
         _draggingTrack = track;
         _trackDragOrigin = args.GetPosition(TimelineCanvas);
         _trackDragStarted = false;
         DrawTimeline();
-        TimelineCanvas.CaptureMouse();
+        if (!TimelineCanvas.CaptureMouse())
+        {
+            _draggingTrack = null;
+            _trackDragFromLane = false;
+            StatusText.Text = "无法捕获鼠标，轨道拖动未开始 · TMLNE0100";
+        }
         args.Handled = true;
     }
 
@@ -737,8 +793,11 @@ public partial class MainWindow
             _selectedTransitionPrior = prior;
             _selectedTransitionTrack = track;
             _selectedClip = null;
+            _selectedKeyframe = null;
             _selectedClips.Clear();
             _selectedTrack = track;
+            _contextTrack = track;
+            CloseSettingsTabs();
         };
         Canvas.SetLeft(marker, x - marker.Width / 2);
         Canvas.SetTop(marker, y + (TrackSpace - marker.Height) / 2);
@@ -749,13 +808,18 @@ public partial class MainWindow
     private void SelectTransition(TimelineTrack track, TimelineClip incoming,
         TimelineClip? prior, ClipTransition transition, double duration)
     {
+        if (!_project.Tracks.Contains(track) || !track.Clips.Contains(incoming) ||
+            prior is not null && !track.Clips.Contains(prior)) return;
         _selectedTransition = transition;
         _selectedTransitionIncoming = incoming;
         _selectedTransitionPrior = prior;
         _selectedTransitionTrack = track;
         _selectedClip = null;
+        _selectedKeyframe = null;
         _selectedClips.Clear();
         _selectedTrack = track;
+        _contextTrack = track;
+        CloseSettingsTabs();
         DrawTimeline();
         SeekPreview(incoming.StartSeconds + duration / 2);
         StatusText.Text = $"已选中转场：{transition.Name} · Delete 删除";
@@ -764,13 +828,22 @@ public partial class MainWindow
     private void EditBoundaryTransition(TimelineTrack track, TimelineClip incoming,
         TimelineClip? prior, ClipTransition transition)
     {
-        if (track.IsLocked) { StatusText.Text = "轨道已锁定 · VIS-TRANSITION-LOCKED"; return; }
+        if (track.IsLocked) { StatusText.Text = "轨道已锁定 · EFECT0910"; return; }
+        if (!_project.Tracks.Contains(track) || !track.Clips.Contains(incoming) ||
+            prior is not null && !track.Clips.Contains(prior) ||
+            !incoming.Transitions.Contains(transition) &&
+                (prior is null || !prior.Transitions.Contains(transition))) return;
 
         // Store transition info for editing in left upper tab
         _selectedTransition = transition;
         _selectedTransitionIncoming = incoming;
         _selectedTransitionPrior = prior;
         _selectedTransitionTrack = track;
+        _selectedClip = null;
+        _selectedKeyframe = null;
+        _selectedClips.Clear();
+        _selectedTrack = track;
+        _contextTrack = track;
 
         // Show transition settings in left upper tab
         ShowTransitionSettings();
@@ -781,7 +854,25 @@ public partial class MainWindow
         if (_selectedTransition == null || _selectedTransitionIncoming == null ||
             _selectedTransitionTrack == null) return;
 
+        // Bind every handler to this page's transition. Reading the mutable
+        // selection from a delayed focus/click callback can apply old input
+        // values to a different transition selected in the meantime.
+        ClipTransition editedTransition = _selectedTransition;
+        TimelineClip editedIncoming = _selectedTransitionIncoming;
+        TimelineClip? editedPrior = _selectedTransitionPrior;
+        TimelineTrack editedTrack = _selectedTransitionTrack;
+
         var panel = new StackPanel { Margin = new Thickness(0) };
+        bool CanEditTransition() => panel.IsLoaded && panel.IsVisible &&
+            ReferenceEquals(_selectedTransition, editedTransition) &&
+            ReferenceEquals(_selectedTransitionIncoming, editedIncoming) &&
+            ReferenceEquals(_selectedTransitionPrior, editedPrior) &&
+            ReferenceEquals(_selectedTransitionTrack, editedTrack) &&
+            _project.Tracks.Contains(editedTrack) && !editedTrack.IsLocked &&
+            editedTrack.Clips.Contains(editedIncoming) &&
+            (editedPrior is null || editedTrack.Clips.Contains(editedPrior)) &&
+            (editedIncoming.Transitions.Contains(editedTransition) ||
+                editedPrior?.Transitions.Contains(editedTransition) == true);
         panel.Children.Add(SettingsHeader("转场设置", () => CloseSettingsTabs()));
 
         panel.Children.Add(new TextBlock
@@ -820,15 +911,13 @@ public partial class MainWindow
 
         // Strength / turn count of the transition's current type. They apply
         // as soon as they are entered; changing the type rebuilds this tab.
-        ClipTransition editedTransition = _selectedTransition;
-        TimelineClip editedIncoming = _selectedTransitionIncoming;
         AddTransitionParameterRows(panel, editedTransition, new Thickness(0, 0, 0, 15), message =>
         {
             RefreshTimeline();
             SeekPreview(editedIncoming.StartSeconds + Math.Min(editedTransition.DurationSeconds,
                 editedIncoming.DurationSeconds / 2) / 2);
             StatusText.Text = message;
-        });
+        }, CanEditTransition);
 
         var applyButton = new Button
         {
@@ -838,27 +927,24 @@ public partial class MainWindow
         };
         applyButton.Click += (_, _) =>
         {
+            if (!CanEditTransition())
+            { StatusText.Text = "转场选择已变化 · EFECT0911"; return; }
             if (!double.TryParse(duration.Text, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.CurrentCulture, out double seconds) ||
                 !double.IsFinite(seconds) || seconds <= 1 / _project.Sequence.FramesPerSecond ||
-                seconds > Math.Min(30, (_selectedTransitionPrior is null
-                    ? _selectedTransitionIncoming.DurationSeconds
-                    : Math.Min(_selectedTransitionPrior.DurationSeconds, _selectedTransitionIncoming.DurationSeconds)) / 2))
-            { StatusText.Text = "转场时长超出相邻片段可用范围 · VIS-TRANSITION-DURATION"; return; }
-            if (!_selectedTransitionTrack.Clips.Contains(_selectedTransitionIncoming) ||
-                _selectedTransitionPrior is not null && !_selectedTransitionTrack.Clips.Contains(_selectedTransitionPrior) ||
-                !_selectedTransitionIncoming.Transitions.Contains(_selectedTransition) &&
-                (_selectedTransitionPrior is null || !_selectedTransitionPrior.Transitions.Contains(_selectedTransition)))
-            { StatusText.Text = "转场已变化 · VIS-TRANSITION-STATE"; return; }
+                seconds > Math.Min(30, (editedPrior is null
+                    ? editedIncoming.DurationSeconds
+                    : Math.Min(editedPrior.DurationSeconds, editedIncoming.DurationSeconds)) / 2))
+            { StatusText.Text = "转场时长超出相邻片段可用范围 · EFECT0902"; return; }
             SaveUndoState();
             BuiltinPreset choice = BuiltinCatalog.Transitions[Math.Clamp(preset.SelectedIndex, 0,
                 BuiltinCatalog.Transitions.Count - 1)];
-            _selectedTransition.PresetId = choice.Id;
-            _selectedTransition.Name = choice.Name;
-            _selectedTransition.DurationSeconds = seconds;
-            _selectedTransition.Edge = edge.SelectedItem as string == "Out" ? "Out" : "In";
+            editedTransition.PresetId = choice.Id;
+            editedTransition.Name = choice.Name;
+            editedTransition.DurationSeconds = seconds;
+            editedTransition.Edge = edge.SelectedItem as string == "Out" ? "Out" : "In";
             MarkProjectDirty(); RefreshTimeline();
-            SeekPreview(_selectedTransitionIncoming.StartSeconds + Math.Min(seconds, _selectedTransitionIncoming.DurationSeconds / 2) / 2);
+            SeekPreview(editedIncoming.StartSeconds + Math.Min(seconds, editedIncoming.DurationSeconds / 2) / 2);
             StatusText.Text = "已应用转场设置";
             // The type may now support different extra fields.
             ShowTransitionSettings();
@@ -884,12 +970,15 @@ public partial class MainWindow
     private void RemoveBoundaryTransition(TimelineTrack track, TimelineClip incoming,
         TimelineClip? prior, ClipTransition transition)
     {
-        if (track.IsLocked) { StatusText.Text = "轨道已锁定 · EDIT-TRANSITION-LOCKED"; return; }
+        if (track.IsLocked) { StatusText.Text = "轨道已锁定 · EFECT0910"; return; }
+        if (!_project.Tracks.Contains(track) || !track.Clips.Contains(incoming) ||
+            prior is not null && !track.Clips.Contains(prior)) return;
         if (!incoming.Transitions.Contains(transition) &&
             (prior is null || !prior.Transitions.Contains(transition))) return;
         SaveUndoState();
         if (!incoming.Transitions.Remove(transition) && prior is not null) prior.Transitions.Remove(transition);
         ClearTransitionSelection();
+        CloseSettingsTabs();
         MarkProjectDirty();
         RefreshTimeline();
         SeekPreview(_project.Sequence.PlayheadSeconds);
@@ -911,10 +1000,17 @@ public partial class MainWindow
         menu.Foreground = Brushes.White;
         menu.Opened += (_, _) =>
         {
+            if (!_project.Tracks.Any(track => track.Clips.Contains(clip)))
+            {
+                menu.IsOpen = false;
+                return;
+            }
             // Keep an existing multi-selection when right-clicking one of its
             // members; otherwise make the clicked clip the edit target. Avoid
             // rebuilding the canvas while its context menu is opening.
             _selectedClip = clip;
+            ClearTransitionSelection();
+            _selectedKeyframe = null;
             _selectedTrack = _project.Tracks.FirstOrDefault(track => track.Clips.Contains(clip));
             if (!_selectedClips.Contains(clip))
             {
@@ -996,6 +1092,7 @@ public partial class MainWindow
 
     private void TimelineCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs args)
     {
+        if (_movingClip || _trimmingStart || _trimmingEnd) FinishClipGesture();
         Point point = args.GetPosition(TimelineCanvas);
         // Ruler clicks jump to a frame; dragging the orange line retains
         // the pointer offset so the playhead does not jump on mouse-down.
@@ -1025,6 +1122,7 @@ public partial class MainWindow
             _selectedTrack = trimData.Item1;
             _contextTrack = _selectedTrack;
             _selectedClip = trimData.Item2;
+            _selectedKeyframe = null;
             _selectedClips.Clear();
             _selectedClips.Add(trimData.Item2);
             ShowSelectedObjectSettings();
@@ -1042,7 +1140,13 @@ public partial class MainWindow
             _moveOriginalMulticamLocalStart = _selectedClip.MulticamLocalStartSeconds;
             _moveOriginalTrack = _selectedTrack;
             _moveOriginalProjectJson = JsonSerializer.Serialize(_project);
-            TimelineCanvas.CaptureMouse();
+            _clipGestureClip = _selectedClip;
+            if (!TimelineCanvas.CaptureMouse())
+            {
+                ResetClipGestureState();
+                StatusText.Text = "无法捕获鼠标，片段修剪未开始 · TMLNE0100";
+                return;
+            }
             DrawTimeline();
             args.Handled = true;
             return;
@@ -1060,11 +1164,20 @@ public partial class MainWindow
             _selectedTrack = data.Item1;
             _contextTrack = _selectedTrack;
             _selectedClip = data.Item2;
+            _selectedKeyframe = null;
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
-                if (!_selectedClips.Add(data.Item2)) _selectedClips.Remove(data.Item2);
+                if (!_selectedClips.Add(data.Item2))
+                {
+                    _selectedClips.Remove(data.Item2);
+                    _selectedClip = _selectedClips.LastOrDefault();
+                    _selectedTrack = _selectedClip is null ? data.Item1 :
+                        _project.Tracks.FirstOrDefault(track => track.Clips.Contains(_selectedClip));
+                    _contextTrack = _selectedTrack;
+                }
                 DrawTimeline();
-                if (_selectedClips.Contains(data.Item2)) ShowSelectedObjectSettings();
+                DrawTextOverlay();
+                if (_selectedClip is not null) ShowSelectedObjectSettings();
                 else CloseSettingsTabs();
                 args.Handled = true;
                 return;
@@ -1093,8 +1206,14 @@ public partial class MainWindow
             _moveOriginalMulticamLocalStart = _selectedClip.MulticamLocalStartSeconds;
             _moveOriginalTrack = _selectedTrack;
             _moveOriginalProjectJson = JsonSerializer.Serialize(_project);
+            _clipGestureClip = _selectedClip;
             CaptureMoveCompanions();
-            TimelineCanvas.CaptureMouse();
+            if (!TimelineCanvas.CaptureMouse())
+            {
+                ResetClipGestureState();
+                StatusText.Text = "无法捕获鼠标，片段拖动未开始 · TMLNE0100";
+                return;
+            }
             DrawTimeline();
             ShowSelectedObjectSettings();
             SeekPreview(Math.Max(_selectedClip.StartSeconds, _project.Sequence.PlayheadSeconds));
@@ -1176,7 +1295,13 @@ public partial class MainWindow
                 FinishPlayheadScrub();
             return;
         }
-        if ((!_movingClip && !_trimmingStart && !_trimmingEnd) || _selectedClip is null || args.LeftButton != MouseButtonState.Pressed) return;
+        if (!_movingClip && !_trimmingStart && !_trimmingEnd) return;
+        if (_clipGestureClip is null || !ReferenceEquals(_clipGestureClip, _selectedClip) ||
+            !IsCurrentEditableClip(_clipGestureClip) || args.LeftButton != MouseButtonState.Pressed)
+        {
+            FinishClipGesture();
+            return;
+        }
         ScrollTimelineDuringClipGesture();
         Point point = args.GetPosition(TimelineCanvas);
         if (_trimmingStart || _trimmingEnd)
@@ -1331,61 +1456,63 @@ public partial class MainWindow
 
     private void FinishClipGesture()
     {
+        TimelineClip? clip = _clipGestureClip;
+        TimelineTrack? track = clip is null ? null :
+            _project.Tracks.FirstOrDefault(item => item.Clips.Contains(clip));
+        if (clip is null || track is null)
+        {
+            ResetClipGestureState();
+            if (TimelineCanvas.IsMouseCaptured) TimelineCanvas.ReleaseMouseCapture();
+            return;
+        }
         bool moving = _movingClip;
         bool trimmingEnd = _trimmingEnd;
         // MouseMove is not guaranteed to deliver the last pointer position
         // before release. Resolve the track magnet once more at commit time so
         // every drag ends on the same frame/boundary as its preview.
-        if (_snapEnabled && _selectedTrack?.IsSnapping != false && _selectedClip is not null)
+        if (_snapEnabled && !track.IsLocked && track.IsSnapping && ReferenceEquals(_selectedClip, clip))
         {
             if (moving)
             {
-                double snapped = SnapMovingClipStart(_selectedClip.StartSeconds);
-                double delta = snapped - _selectedClip.StartSeconds;
+                double snapped = SnapMovingClipStart(clip.StartSeconds);
+                double delta = snapped - clip.StartSeconds;
                 if (Math.Abs(delta) > .000001)
                 {
-                    _selectedClip.StartSeconds = snapped;
+                    clip.StartSeconds = snapped;
                     foreach (var companion in _moveCompanionOriginalStarts)
                         companion.Key.StartSeconds = Math.Max(0, companion.Key.StartSeconds + delta);
                 }
             }
             else if (trimmingEnd)
             {
-                double end = SnapEditTime(_selectedClip.StartSeconds + _selectedClip.DurationSeconds,
-                    _selectedClip);
+                double end = SnapEditTime(clip.StartSeconds + clip.DurationSeconds, clip);
                 double minimum = 1 / Math.Max(1, _project.Sequence.FramesPerSecond);
-                _selectedClip.DurationSeconds = Math.Max(minimum, end - _selectedClip.StartSeconds);
+                clip.DurationSeconds = Math.Max(minimum, end - clip.StartSeconds);
             }
         }
-        _clipEdgeScrollTimer.Stop();
-        _movingClip = false;
-        _trimmingStart = false;
-        _trimmingEnd = false;
-        if (TimelineCanvas.IsMouseCaptured) TimelineCanvas.ReleaseMouseCapture();
-        if (_selectedClip is null) return;
-        bool changed = Math.Abs(_selectedClip.StartSeconds - _moveOriginalStart) > 0.001 ||
-            Math.Abs(_selectedClip.DurationSeconds - _moveOriginalDuration) > 0.001 ||
-            Math.Abs(_selectedClip.SourceInSeconds - _moveOriginalSourceIn) > 0.001 ||
-            Math.Abs(_selectedClip.MulticamLocalStartSeconds - _moveOriginalMulticamLocalStart) > 0.001 ||
-            _selectedTrack != _moveOriginalTrack ||
+        bool changed = Math.Abs(clip.StartSeconds - _moveOriginalStart) > 0.001 ||
+            Math.Abs(clip.DurationSeconds - _moveOriginalDuration) > 0.001 ||
+            Math.Abs(clip.SourceInSeconds - _moveOriginalSourceIn) > 0.001 ||
+            Math.Abs(clip.MulticamLocalStartSeconds - _moveOriginalMulticamLocalStart) > 0.001 ||
+            track != _moveOriginalTrack ||
             _moveCompanionOriginalStarts.Any(item => Math.Abs(item.Key.StartSeconds - item.Value) > 0.001);
+        string? originalProjectJson = _moveOriginalProjectJson;
+        ResetClipGestureState();
+        if (TimelineCanvas.IsMouseCaptured) TimelineCanvas.ReleaseMouseCapture();
         if (changed)
         {
-            if (_moveOriginalProjectJson is not null)
+            if (originalProjectJson is not null)
             {
-                _undoStates.Push(_moveOriginalProjectJson);
+                _undoStates.Push(originalProjectJson);
                 TrimHistoryCapacity();
                 _redoStates.Clear();
             }
             MarkProjectDirty();
-            StatusText.Text = $"已更新片段：{_selectedClip.Name}";
+            StatusText.Text = $"已更新片段：{clip.Name}";
             RefreshTimeline();
             SeekPreview(_project.Sequence.PlayheadSeconds);
         }
         else DrawTimeline();
-        _moveOriginalProjectJson = null;
-        _moveOriginalTimeRemap = null;
-        _moveCompanionOriginalStarts.Clear();
     }
 
     private bool ScrollTimelineDuringClipGesture()
@@ -1477,7 +1604,7 @@ public partial class MainWindow
                     if (current is null) { StatusText.Text = "所拖媒体已从当前项目移除"; return; }
                     item = item with { Source = current };
                 }
-                if (item.Category is 2 or 3 or 5) ApplyPresetToClipAt(item, point);
+                if (item.Category is 2 or 3) ApplyPresetToClipAt(item, point);
                 else AddLibraryItemToTimeline(item, time, trackIndex);
             }
             else if (args.Data.GetData(DataFormats.FileDrop) is string[] paths)
@@ -1491,7 +1618,7 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or ArgumentException)
         {
-            StatusText.Text = $"媒体拖放失败 · MED-DROP：{exception.Message}";
+            StatusText.Text = $"媒体拖放失败 · PMEDA0005：{exception.Message}";
         }
         args.Handled = true;
     }
@@ -1508,7 +1635,7 @@ public partial class MainWindow
         // A timeline redraw can detach the ghost while the native drag loop
         // continues. Reattach only the current gesture's transient visual.
         if (!TimelineCanvas.Children.Contains(_dropGhost)) TimelineCanvas.Children.Add(_dropGhost);
-        string prefix = item.Source is MediaAsset ? "▣" : "✦";
+        string prefix = item.Source is BuiltinMusicTrack ? "♫" : item.Source is MediaAsset ? "▣" : "✦";
         _dropGhost.Child = new TextBlock { Text = $"{prefix} {item.Name}", Foreground = Brushes.White,
             FontWeight = FontWeights.SemiBold };
         Canvas.SetLeft(_dropGhost, point.X + 12); Canvas.SetTop(_dropGhost, point.Y + 12);
@@ -1654,7 +1781,7 @@ public partial class MainWindow
                     1 / Math.Max(1, _project.Sequence.FramesPerSecond))
                 {
                     pending.AwaitsDuration = false;
-                    StatusText.Text = $"源素材区间无效：{asset.Name} · MED-DURATION";
+                    StatusText.Text = $"源素材区间无效：{asset.Name} · PMEDA0006";
                     continue;
                 }
                 double delta = duration - clip.DurationSeconds;
@@ -1690,6 +1817,28 @@ public partial class MainWindow
 
     private void AddLibraryItemToTimeline(LibraryItem item, double time, int trackIndex)
     {
+        BuiltinMusicTrack? originalMusic = item.Source as BuiltinMusicTrack;
+        bool undoCaptured = false;
+        if (item.Source is BuiltinMusicTrack music)
+        {
+            StopBuiltinMusicPreview();
+            try
+            {
+                ValidateBuiltinMusicTrack(music);
+                // The media reference and timeline clip form one undo step.
+                SaveUndoState();
+                undoCaptured = true;
+                MediaAsset musicAsset = EnsureBuiltinMusicAsset(music);
+                item = item with { Id = musicAsset.Id, Category = 0, Source = musicAsset };
+            }
+            catch (Exception exception) when (exception is Tools.StageException or System.IO.IOException or
+                UnauthorizedAccessException or ArgumentException)
+            {
+                StatusText.Text = $"内置音乐添加失败 · {Tools.StageCodes.Resolve(exception, "MUSIC0006")}";
+                Tools.ErrorDialog.Show(this, "MUSIC0006", exception);
+                return;
+            }
+        }
         bool isSticker = item.Category == 4;
         ClipKind kind = item.Category is 1 or 4 ? ClipKind.Text : ((MediaAsset)item.Source).Kind switch
         {
@@ -1705,7 +1854,7 @@ public partial class MainWindow
             : ResolveDropTarget(kind, trackIndex);
         // Capture the state before a missing destination track is created, so undo
         // removes both the new clip and its automatically created track.
-        SaveUndoState();
+        if (!undoCaptured) SaveUndoState();
         if (kind == ClipKind.Text && track is null)
             track = GetOrCreateTextTrack(Math.Max(0, time), 5);
         else if (track is null)
@@ -1732,6 +1881,14 @@ public partial class MainWindow
             MediaAssetId = item.Source is MediaAsset asset ? asset.Id : null,
             Text = kind == ClipKind.Text ? CreateTitleStyle(isSticker ? "sticker" : item.Id) : null
         };
+        if (undoCaptured)
+        {
+            clip.SourceInSeconds = 0;
+            clip.DurationSeconds = originalMusic!.DurationSeconds;
+            AudioSettings musicAudio = AudioSettings.FromClip(clip);
+            musicAudio.Category = "音乐";
+            musicAudio.Save(clip);
+        }
         if (isSticker && item.Source is BuiltinPreset stickerPreset)
         {
             GraphicShape shape = GraphicShape.FromPreset(stickerPreset,
@@ -1750,6 +1907,10 @@ public partial class MainWindow
         _selectedClip = clip;
         _selectedTrack = track;
         _contextTrack = track;
+        ClearTransitionSelection();
+        _selectedKeyframe = null;
+        _selectedClips.Clear();
+        _selectedClips.Add(clip);
         ShowSelectedObjectSettings(); // 立即更新Tab显示
         MarkProjectDirty();
         RefreshTimeline();
@@ -1906,7 +2067,7 @@ public partial class MainWindow
         if (_selectedTrack is null || _selectedTrack.IsLocked ||
             !_selectedTrack.Clips.Contains(_selectedClip))
         {
-            StatusText.Text = "目标轨道已锁定或片段已移除 · EDIT-PRESET-STATE";
+            StatusText.Text = "目标轨道已锁定或片段已移除 · TMLNE0112";
             return;
         }
         if (item.Category == 3)
@@ -1929,7 +2090,7 @@ public partial class MainWindow
             }
             if (incoming is null)
             {
-                StatusText.Text = "该对象不可见，无法添加转场 · EDIT-TRANSITION-VISIBILITY";
+                StatusText.Text = "该对象不可见，无法添加转场 · EFECT0912";
                 return;
             }
             string edge = prior is null ? (standaloneEdge ?? "In") : "In";
@@ -1941,6 +2102,7 @@ public partial class MainWindow
             _selectedTransitionPrior = prior;
             _selectedTransitionTrack = _selectedTrack;
             _selectedClip = null;
+            _selectedKeyframe = null;
             _selectedClips.Clear();
         }
         else
@@ -2008,6 +2170,8 @@ public partial class MainWindow
 
     private void SelectClip(TimelineClip clip)
     {
+        if (!_project.Tracks.Any(track => track.Clips.Contains(clip))) return;
+        if (_movingClip || _trimmingStart || _trimmingEnd) FinishClipGesture();
         ClearTransitionSelection();
         _selectedKeyframe = null;
         _selectedClip = clip;
@@ -2077,7 +2241,7 @@ public partial class MainWindow
             return;
         }
         if (_selectedTransition is not null && _selectedTransitionTrack is not null &&
-            _selectedTransitionIncoming is not null && _selectedTransitionPrior is not null)
+            _selectedTransitionIncoming is not null)
         {
             RemoveBoundaryTransition(_selectedTransitionTrack, _selectedTransitionIncoming,
                 _selectedTransitionPrior, _selectedTransition);
@@ -2090,6 +2254,7 @@ public partial class MainWindow
         _selectedClip = null;
         _selectedKeyframe = null;
         _selectedClips.Clear();
+        CloseSettingsTabs();
         MarkProjectDirty();
         RefreshTimeline();
         SeekPreview(_project.Sequence.PlayheadSeconds);
@@ -2123,7 +2288,10 @@ public partial class MainWindow
                 ? _project.Sequence.PlayheadSeconds - (end - start)
                 : Math.Min(_project.Sequence.PlayheadSeconds, start));
         _selectedClip = null;
+        _selectedKeyframe = null;
+        ClearTransitionSelection();
         _selectedClips.Clear();
+        CloseSettingsTabs();
         MarkProjectDirty();
         RefreshTimeline();
         SeekPreview(_project.Sequence.PlayheadSeconds);
@@ -2176,7 +2344,7 @@ public partial class MainWindow
         if (_selectedTrack?.IsLocked != false) { StatusText.Text = "轨道已锁定"; return; }
         if (_selectedClip.MulticamGroupId is not null)
         {
-            StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段需保持原速 · MLCAM0901";
             return;
         }
         TimelineClip edited = _selectedClip;
@@ -2246,14 +2414,14 @@ public partial class MainWindow
             edited.DurationSeconds != originalDuration || edited.Speed != originalSpeed ||
             edited.TimeRemapPoints.Count != originalRemapCount)
         {
-            StatusText.Text = "片段或轨道已变化 · EDIT-SPEED-STATE";
+            StatusText.Text = "片段或轨道已变化 · TMLNE0113";
             return;
         }
         if (!double.TryParse(speedBox.Text, out double speed) || !double.IsFinite(speed) || speed < .05 || speed > 32 ||
             !double.TryParse(durationBox.Text, out double duration) || !double.IsFinite(duration) ||
             duration < 1 / Math.Max(1, _project.Sequence.FramesPerSecond) || duration > 24 * 3600)
         {
-            MessageBox.Show(this, "速度必须在 0.05 到 32 倍之间，时长须在一帧到 24 小时之间。\n阶段代码：EDIT-SPEED-VALUE",
+            MessageBox.Show(this, "速度必须在 0.05 到 32 倍之间，时长须在一帧到 24 小时之间。\n阶段代码：TMLNE0114",
                 "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -2261,12 +2429,12 @@ public partial class MainWindow
         if (source?.DurationSeconds is double sourceDuration &&
             edited.SourceInSeconds + duration * speed > sourceDuration + .001)
         {
-            StatusText.Text = "变速后的片段超出源素材范围 · EDIT-SPEED-SOURCE";
+            StatusText.Text = "变速后的片段超出源素材范围 · TMLNE0115";
             return;
         }
         if (edited.MulticamGroupId is not null && Math.Abs(speed - 1) > .000001)
         {
-            StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段需保持原速 · MLCAM0901";
             return;
         }
         if (edited.MulticamGroupId is not null &&
@@ -2274,7 +2442,7 @@ public partial class MainWindow
                 is { } group &&
             edited.MulticamLocalStartSeconds + duration > group.DurationSeconds + .001)
         {
-            StatusText.Text = "片段时长超出多机位共享范围 · MULTICAM-EDIT";
+            StatusText.Text = "片段时长超出多机位共享范围 · MLCAM0901";
             return;
         }
         SaveUndoState();
@@ -2295,10 +2463,10 @@ public partial class MainWindow
         if (_selectedClip is null) return;
         if (_selectedTrack?.IsLocked != false) { StatusText.Text = "轨道已锁定"; return; }
         if (_selectedClip.Kind is not (ClipKind.Video or ClipKind.Audio))
-        { StatusText.Text = "反向播放适用于视频或音频片段 · EDIT-REVERSE-TYPE"; return; }
+        { StatusText.Text = "反向播放适用于视频或音频片段 · TMLNE0116"; return; }
         if (_selectedClip.MulticamGroupId is not null)
         {
-            StatusText.Text = "多机位切段不支持倒放；请先复制为普通片段 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段不支持倒放；请先复制为普通片段 · MLCAM0901";
             return;
         }
         SaveUndoState();
@@ -2508,6 +2676,11 @@ public partial class MainWindow
 
     private void TrackDragEdgeScrollTick(object? sender, EventArgs args)
     {
+        if (_draggingTrack is not null && Mouse.LeftButton != MouseButtonState.Pressed)
+        {
+            FinishTrackDrag(Mouse.GetPosition(TimelineCanvas));
+            return;
+        }
         if (_draggingTrack is null || Math.Abs(_trackDragScrollStep) < .001)
         {
             StopTrackDragEdgeScroll();
@@ -2536,17 +2709,19 @@ public partial class MainWindow
     {
         TimelineTrack? dragged = _draggingTrack;
         bool moved = _trackDragStarted;
+        bool fromLane = _trackDragFromLane;
         int predicted = _trackDragTargetIndex;
         _draggingTrack = null;
+        _trackDragFromLane = false;
         _trackDragStarted = false;
         _trackDragTargetIndex = -1;
         StopTrackDragEdgeScroll();
         HideTrackDragBlock();
         if (TimelineCanvas.IsMouseCaptured) TimelineCanvas.ReleaseMouseCapture();
-        if (dragged is null) return;
+        if (dragged is null || !_project.Tracks.Contains(dragged)) return;
         if (!moved)
         {
-            if (_trackDragFromLane) SeekPreview(Math.Max(0, (dropPoint.X - HeaderSpace) / PixelsPerSecond));
+            if (fromLane) SeekPreview(Math.Max(0, (dropPoint.X - HeaderSpace) / PixelsPerSecond));
             StatusText.Text = $"已选择轨道：{dragged.Name}"; return;
         }
         // Commit to the slot the gap was showing. Falling back to the pointer
@@ -2635,10 +2810,7 @@ public partial class MainWindow
         SaveUndoState();
         _project.Tracks.Remove(track);
         for (int index = 0; index < _project.Tracks.Count; index++) _project.Tracks[index].Order = index;
-        _contextTrack = null;
-        _selectedTrack = null;
-        _selectedClip = null;
-        _selectedClips.Clear();
+        ClearTimelineSelection();
         MarkProjectDirty();
         RefreshTimeline();
         SeekPreview(_project.Sequence.PlayheadSeconds);
@@ -2764,12 +2936,12 @@ public partial class MainWindow
     private async Task RestoreHistoryAsync(Stack<string> source, Stack<string> destination, string completedText)
     {
         if (_historyOperationInProgress || _projectIoInProgress || _exportInProgress ||
-            _mediaImportGate.CurrentCount == 0 || source.Count == 0 ||
-            _movingClip || _trimmingStart || _trimmingEnd || _scrubbingPlayhead ||
-            _rubberBandDrag is not null || _bezierHandleDrag is not null ||
-            _draggingTitleClip is not null) return;
+            _mediaImportGate.CurrentCount == 0 || source.Count == 0 || HasActiveEditorGesture) return;
 
         if (_isPlaying) TogglePlayback();
+        StopCatalogPreview();
+        StopAudioPreview();
+        StopCachedPreview();
         _historyOperationInProgress = true;
         // Disable editing while a worker reads the mutable project graph. Any
         // asynchronous import already in flight is invalidated by the new
@@ -2809,9 +2981,8 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
-            StatusText.Text = "编辑历史恢复失败 · HIST-RESTORE";
-            MessageBox.Show(this, $"无法恢复编辑历史。\n阶段代码：HIST-RESTORE\n{exception.Message}",
-                "编辑历史恢复失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = $"编辑历史恢复失败 · {Tools.StageCodes.Resolve(exception, "HISTY0001")}";
+            Tools.ErrorDialog.Show(this, "HISTY0001", exception);
         }
         finally
         {

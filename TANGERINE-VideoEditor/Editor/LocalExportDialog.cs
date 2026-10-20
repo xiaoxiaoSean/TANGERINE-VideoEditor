@@ -327,8 +327,7 @@ public sealed class LocalExportDialog : Window
     }
 
     private void ShowError(ExportDialogException exception) =>
-        MessageBox.Show(this, $"{exception.Message}\n阶段代码：EXPORT-{exception.StageCode}", "导出设置错误",
-            MessageBoxButton.OK, MessageBoxImage.Error);
+        Tools.ErrorDialog.Show(this, "EXPDL0900", exception);
 
     private static TextBlock Label(string text) => new()
     {

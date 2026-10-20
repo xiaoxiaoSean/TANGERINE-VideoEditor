@@ -161,12 +161,12 @@ public partial class MainWindow
             .Distinct().OrderBy(clip => clip.StartSeconds).ToArray();
         if (selected.Length > 16)
         {
-            StatusText.Text = "一次最多选择 16 个视频机位 · MULTICAM-VALIDATE";
+            StatusText.Text = "一次最多选择 16 个视频机位 · MLCAM0001";
             return;
         }
         if (selected.Length < 2)
         {
-            StatusText.Text = "请按住 Ctrl 选择至少两个不同机位的视频片段 · MULTICAM-VALIDATE";
+            StatusText.Text = "请按住 Ctrl 选择至少两个不同机位的视频片段 · MLCAM0001";
             return;
         }
         var dialog = new Window
@@ -588,9 +588,7 @@ public partial class MainWindow
 
     private void ReportMulticamError(MulticamException exception)
     {
-        StatusText.Text = $"多机位操作失败 · MULTICAM-{exception.StageCode.ToString().ToUpperInvariant()}";
-        MessageBox.Show(this,
-            $"{exception.Message}\n阶段代码：MULTICAM-{exception.StageCode.ToString().ToUpperInvariant()}",
-            "多机位操作失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = $"多机位操作失败 · {Tools.StageCodes.Resolve(exception, "MLCAM0900")}";
+        Tools.ErrorDialog.Show(this, "MLCAM0900", exception);
     }
 }

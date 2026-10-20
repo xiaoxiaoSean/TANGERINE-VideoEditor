@@ -29,6 +29,7 @@ public partial class MainWindow
     private UIElement BuildGraphicTool(TimelineClip clip, Action back)
     {
         var panel = new StackPanel { Margin = new Thickness(4) };
+        bool CanEdit() => panel.IsLoaded && panel.IsVisible && IsCurrentEditableClip(clip);
         panel.Children.Add(SettingsHeader("形状设置", back));
 
         GraphicShape? initial;
@@ -54,6 +55,7 @@ public partial class MainWindow
         // written, so an invalid entry can never leave a half-edited shape.
         bool Apply(Action<GraphicShape> change, string message)
         {
+            if (!CanEdit()) return false;
             TimelineTrack? owner = _project.Tracks.FirstOrDefault(track => track.Clips.Contains(clip));
             if (owner is null || owner.IsLocked)
             {
@@ -71,7 +73,7 @@ public partial class MainWindow
             }
             catch (GraphicShapeException exception)
             {
-                StatusText.Text = $"{exception.Message} · {exception.StageCode}";
+                StatusText.Text = $"{exception.Message} · {Tools.StageCodes.Resolve(exception, "GRAPH0900")}";
                 return false;
             }
             MarkProjectDirty();
@@ -95,11 +97,12 @@ public partial class MainWindow
             box.ToolTip = tip;
             void Commit()
             {
+                if (!CanEdit()) return;
                 GraphicShape? stored = Stored();
                 if (!double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
                     !double.IsFinite(value) || value < minimum || value > maximum)
                 {
-                    StatusText.Text = $"“{label}”须在 {Show(minimum)} 到 {Show(maximum)} 之间 · GRAPHIC-RANGE";
+                    StatusText.Text = $"“{label}”须在 {Show(minimum)} 到 {Show(maximum)} 之间 · GRAPH0901";
                     if (stored is not null) box.Text = Show(read(stored) * 100);
                     return;
                 }
@@ -120,10 +123,11 @@ public partial class MainWindow
             TextBox box = AddTextToolField(panel, label, read(original));
             void Commit()
             {
+                if (!CanEdit()) return;
                 GraphicShape? stored = Stored();
                 if (!TryColorValue(box.Text))
                 {
-                    StatusText.Text = $"“{label}”不是有效的颜色，例如 #FF9957 · GRAPHIC-COLOR";
+                    StatusText.Text = $"“{label}”不是有效的颜色，例如 #FF9957 · GRAPH0902";
                     if (stored is not null) box.Text = read(stored);
                     return;
                 }

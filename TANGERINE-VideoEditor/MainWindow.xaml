@@ -7,7 +7,14 @@
     <Window.Resources>
         <local:ProportionalSizeConverter x:Key="ProportionalSize" />
         <DataTemplate x:Key="CatalogListTemplate">
-            <StackPanel><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Description}" TextWrapping="Wrap" Foreground="#9B9EA7" FontSize="11" /></StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="28*" /><ColumnDefinition Width="72*" /></Grid.ColumnDefinitions>
+                <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" Height="{Binding ActualWidth, RelativeSource={RelativeSource Self}, Converter={StaticResource ProportionalSize}, ConverterParameter=0.5625}" VerticalAlignment="Center" IsHitTestVisible="False" />
+                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Foreground="#9B9EA7" FontSize="11" />
+                </StackPanel>
+            </Grid>
         </DataTemplate>
         <DataTemplate x:Key="MediaListTemplate">
             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="24*" /><ColumnDefinition Width="76*" /></Grid.ColumnDefinitions>
@@ -69,6 +76,7 @@
             </Setter>
         </Style>
         <Style x:Key="AssetItem" TargetType="ListBoxItem">
+            <Setter Property="ToolTip" Value="{Binding ToolTip}" />
             <Setter Property="Margin" Value="0,0,0,7" />
             <Setter Property="Padding" Value="10,11" />
             <Setter Property="Cursor" Value="Hand" />
@@ -218,7 +226,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="21*" /><ColumnDefinition Width="79*" /></Grid.ColumnDefinitions>
                         <ListBox x:Name="CategoryList" Grid.Column="0" ItemContainerStyle="{StaticResource CategoryItem}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" />
                         <Grid x:Name="LibraryContentGrid" Grid.Column="1" Margin="13,11,13,10">
-                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                             <DockPanel Grid.Row="0" Margin="0,0,0,9">
                                 <StackPanel DockPanel.Dock="Left">
                                     <TextBlock x:Name="LibraryTitle" Text="媒体" FontSize="17" FontWeight="SemiBold" />
@@ -228,13 +236,26 @@
                             </DockPanel>
                             <Grid Grid.Row="1" Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="70*" /><ColumnDefinition Width="30*" /></Grid.ColumnDefinitions>
-                                <TextBox x:Name="AssetSearchBox" ToolTip="搜索媒体、文字、效果和转场" />
+                                <TextBox x:Name="AssetSearchBox" ToolTip="搜索媒体、文字、效果、转场与音乐风格" />
                                 <ComboBox x:Name="MediaViewBox" Grid.Column="1" Margin="5,0,0,0" ToolTip="媒体显示方式" />
                             </Grid>
                             <Grid Grid.Row="2">
                                 <ListBox x:Name="AssetList" ItemContainerStyle="{StaticResource AssetItem}" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
                                 <TextBlock x:Name="EmptyLibraryMessage" Text="从上方添加媒体，或从左侧选择内置素材" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" IsHitTestVisible="False" />
                             </Grid>
+                            <Border x:Name="MusicPlaybackBar" Grid.Row="3" Visibility="Collapsed" Margin="0,8,0,0" Padding="8"
+                                    Background="#252B32" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="5">
+                                <StackPanel>
+                                    <TextBlock x:Name="MusicPlaybackTitle" TextTrimming="CharacterEllipsis" Margin="0,0,0,5" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="12*" /><ColumnDefinition Width="51*" /><ColumnDefinition Width="27*" /><ColumnDefinition Width="10*" /></Grid.ColumnDefinitions>
+                                        <Button x:Name="MusicPlaybackButton" Content="❚❚" Padding="3" Style="{StaticResource ToolButton}" ToolTip="播放 / 暂停音乐试听" />
+                                        <Slider x:Name="MusicPlaybackSlider" Grid.Column="1" Minimum="0" Maximum="1" VerticalAlignment="Center" Margin="6,0" ToolTip="音乐试听进度" />
+                                        <TextBlock x:Name="MusicPlaybackTime" Grid.Column="2" Text="00:00 / 00:00" VerticalAlignment="Center" TextAlignment="Center" FontSize="10" />
+                                        <Button x:Name="MusicPlaybackStopButton" Grid.Column="3" Content="■" Padding="3" Style="{StaticResource ToolButton}" ToolTip="停止音乐试听" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </Grid>
                         <ContentControl x:Name="SettingsHost" Grid.Column="1" Margin="13,11,13,10"
                                         Visibility="Collapsed" Panel.ZIndex="5" />

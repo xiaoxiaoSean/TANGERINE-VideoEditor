@@ -45,6 +45,7 @@ public partial class MainWindow
                 string? assetId = args["assetId"]?.GetValue<string>();
                 if (assetId is not null && !_project.Media.Any(asset => asset.Id == assetId))
                     throw new StageException("MCPRT0009", "素材不存在：" + assetId);
+                StopCatalogPreview();
                 ClearTimelineSelection();
                 foreach (var clip in clips) _selectedClips.Add(clip);
                 _selectedClip = clips.FirstOrDefault();
@@ -54,7 +55,7 @@ public partial class MainWindow
                     CategoryList.SelectedIndex = 0; RefreshLibrary();
                     AssetList.SelectedItem = AssetList.Items.Cast<object>().OfType<LibraryItem>().FirstOrDefault(item => item.Id == assetId);
                 }
-                DrawTimeline(); DrawTextOverlay();
+                DrawTimeline(); DrawTextOverlay(); SeekPreview(_project.Sequence.PlayheadSeconds);
                 if (_selectedClip is not null) ShowSelectedObjectSettings();
                 return McpState(false);
             }
@@ -65,7 +66,7 @@ public partial class MainWindow
                 ProjectDocument previous = _project;
                 _project = ProjectDocument.CreateDefault(); _project.Name = McpString(args, "name", "未命名项目");
                 _projectPath = null; _projectCreated = command == "project_new"; _isProjectDirty = false;
-                _projectGeneration++; _projectRevision++; ResetEditorSession();
+                _projectGeneration++; _projectRevision++; ResetMcpDocumentContext(); ResetEditorSession();
                 RefreshMcpUi("新建项目"); _ = ReleaseProjectCacheSafelyAsync(previous);
                 return McpState();
             }
@@ -79,7 +80,7 @@ public partial class MainWindow
                 if (_projectRevision != revision || !ReferenceEquals(previous, _project))
                 { await ProjectFileService.ReleaseCachedMediaAsync(loaded); throw new StageException("MCPRT0003", "加载期间项目已修改，请重新打开。"); }
                 _project = loaded; _projectPath = path; _projectCreated = true; _isProjectDirty = false;
-                _projectGeneration++; _projectRevision++; ResetEditorSession(); RefreshMcpUi("已打开项目");
+                _projectGeneration++; _projectRevision++; ResetMcpDocumentContext(); ResetEditorSession(); RefreshMcpUi("已打开项目");
                 _ = ReleaseProjectCacheSafelyAsync(previous); return McpState();
             }
             case "project_save":
@@ -158,8 +159,12 @@ public partial class MainWindow
             case "media_update": return McpUpdateList(_project.Media, McpString(args, "assetId"), McpObject(args, "patch"), item => item.Id, "修改素材");
             case "media_relink":
             {
+                ProjectDocument owner = _project;
+                long revision = _projectRevision;
                 string path = Path.GetFullPath(McpString(args, "path"));
                 if (!await Task.Run(() => File.Exists(path), token)) throw new StageException("MCPRT0008", "源文件不存在。");
+                token.ThrowIfCancellationRequested();
+                McpRequireCurrent(owner, revision);
                 return McpUpdateList(_project.Media, McpString(args, "assetId"), new JsonObject { ["sourcePath"] = path }, item => item.Id, "重新链接素材");
             }
             case "media_remove": return McpMutate("移除素材", () =>
@@ -348,27 +353,62 @@ public partial class MainWindow
                 return McpState(false);
             case "preview_pause": if (_isPlaying) TogglePlayback(); return McpState(false);
             case "catalog_list": return McpCatalogList(McpString(args, "category", "all"));
+            case "music_list": return McpMusicList(args);
+            case "music_preview": return McpMusicPreview(args);
+            case "music_stop": StopBuiltinMusicPreview(); return new { stopped = true };
+            case "music_add": return await McpMusicAddAsync(args, token);
             case "catalog_schema": return McpCatalogSchema(McpString(args, "presetId"));
             case "catalog_preview":
             {
                 string id = McpString(args, "presetId");
                 _ = McpCatalogSchema(id);
+                long previewGeneration = BeginCatalogPreviewRequest();
+                ProjectDocument owner = _project;
+                ProjectSequence sequence = _project.Sequence;
+                string? session = _mcpControlOwnerSessionId;
+                var previewCancellation = new CancellationTokenSource();
+                CancellationToken previewToken = previewCancellation.Token;
+                _catalogPreviewCancellation = previewCancellation;
                 return McpStartJob("示例预览", async (progress, cancellation) =>
                 {
+                    using var requestLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellation, previewToken);
+                    CancellationToken requestToken = requestLifetime.Token;
                     string? path = null;
                     bool playing = false;
                     try
                     {
+                    requestToken.ThrowIfCancellationRequested();
                     Action<double> report = value => progress.Report(value / 100);
-                    if (id.StartsWith("transition.")) await CatalogPreviewService.PlayTransitionPreviewAsync(id, TimelineExporter.ResolveEncoderPath(), value => path = value, cancellation, report);
-                    else if (id.StartsWith("title.") || id.StartsWith("sticker.")) await CatalogPreviewService.PlayTextPreviewAsync(id, "example", TimelineExporter.ResolveEncoderPath(), CreateTitleStyle, value => path = value, cancellation, report);
-                    else await CatalogPreviewService.PlayEffectPreviewAsync(id, TimelineExporter.ResolveEncoderPath(), value => path = value, cancellation, report);
-                    cancellation.ThrowIfCancellationRequested();
+                    if (id.StartsWith("transition.")) await CatalogPreviewService.PlayTransitionPreviewAsync(id, TimelineExporter.ResolveEncoderPath(), value => path = value, requestToken, report);
+                    else if (id.StartsWith("title.") || id.StartsWith("sticker.")) await CatalogPreviewService.PlayTextPreviewAsync(id, "example", TimelineExporter.ResolveEncoderPath(), CreateTitleStyle, value => path = value, requestToken, report);
+                    else await CatalogPreviewService.PlayEffectPreviewAsync(id, TimelineExporter.ResolveEncoderPath(), value => path = value, requestToken, report);
+                    requestToken.ThrowIfCancellationRequested();
                     if (path is null) throw new StageException("MCPJB0001", "示例预览已被新的请求替代。");
-                    await McpOnUiAsync(() => { cancellation.ThrowIfCancellationRequested(); PlayCatalogPreview(path); playing = true; return true; });
+                    await McpOnUiAsync(() =>
+                    {
+                        requestToken.ThrowIfCancellationRequested();
+                        if (!IsCurrentCatalogPreviewRequest(previewGeneration) || !ReferenceEquals(owner, _project) ||
+                            !ReferenceEquals(sequence, _project.Sequence) || session != _mcpControlOwnerSessionId)
+                            throw new StageException("MCPJB0001", "示例预览已被新的选择、项目或操作会话替代。");
+                        PlayCatalogPreview(path); playing = true; return true;
+                    });
                     return new { path, presetId = id };
                     }
-                    finally { if (!playing && path is not null) DeleteCatalogPlaybackFile(path); }
+                    finally
+                    {
+                        if (!playing && path is not null) DeleteCatalogPlaybackFile(path);
+                        try
+                        {
+                            if (!Dispatcher.HasShutdownStarted)
+                                await McpOnUiAsync(() =>
+                                {
+                                    if (!playing && IsCurrentCatalogPreviewRequest(previewGeneration)) StopCatalogPreview();
+                                    if (ReferenceEquals(_catalogPreviewCancellation, previewCancellation)) _catalogPreviewCancellation = null;
+                                    return true;
+                                });
+                        }
+                        finally { previewCancellation.Dispose(); }
+                    }
                 });
             }
             case "jobs_list": return _mcpJobs.Values.OrderByDescending(job => job.CreatedUtc).Select(McpJobState).ToArray();
@@ -449,6 +489,9 @@ public partial class MainWindow
         if (index < 0) throw new StageException("MCPRT0009", "对象不存在：" + id);
         T updated = JsonModelTools.Merge(list[index], patch);
         if (getId(updated) != id) throw new StageException("MCPRT0008", "不能通过 update 修改对象 ID。");
+        if (list[index] is MediaAsset originalMedia && updated is MediaAsset replacement &&
+            !string.Equals(originalMedia.SourcePath, replacement.SourcePath, StringComparison.OrdinalIgnoreCase))
+            ForgetBuiltinMusicProvenance(replacement);
         if (list[index] is TimelineTrack { IsLocked: true } locked && updated is TimelineTrack proposed &&
             (locked.Kind != proposed.Kind || !JsonNode.DeepEquals(JsonModelTools.ToNode(locked.Clips), JsonModelTools.ToNode(proposed.Clips))))
             throw new StageException("MCPRT0010", "轨道已锁定，请先单独解锁后修改轨道内容。");
@@ -554,6 +597,7 @@ public partial class MainWindow
                 File.Move(temporary, output, true);
                 return await McpOnUiAsync<object>(() =>
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     McpRequireCurrent(owner, revision);
                     McpMutate("代理已生成", () => { asset.ProxyPath = output; asset.UseProxy = McpBool(args, "useProxy", true); asset.SetProxyAvailability(true); });
                     return new { assetId = id, path = output };
@@ -602,7 +646,8 @@ public partial class MainWindow
     {
         "titles" or "title" => BuiltinCatalog.Titles, "effects" or "effect" => BuiltinCatalog.Effects,
         "transitions" or "transition" => BuiltinCatalog.Transitions, "stickers" or "sticker" => BuiltinCatalog.Stickers, "filters" => BuiltinCatalog.Filters,
-        _ => new { titles = BuiltinCatalog.Titles, effects = BuiltinCatalog.Effects, transitions = BuiltinCatalog.Transitions, stickers = BuiltinCatalog.Stickers, filters = BuiltinCatalog.Filters }
+        "music" => BuiltinMusicCatalog.Tracks,
+        _ => new { titles = BuiltinCatalog.Titles, effects = BuiltinCatalog.Effects, transitions = BuiltinCatalog.Transitions, stickers = BuiltinCatalog.Stickers, filters = BuiltinCatalog.Filters, music = BuiltinMusicCatalog.Tracks }
     };
     private static object McpCatalogSchema(string id)
     {

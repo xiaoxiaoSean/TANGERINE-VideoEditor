@@ -549,25 +549,25 @@ public partial class MainWindow
         args.Handled = true;
         if (track.IsLocked)
         {
-            StatusText.Text = "轨道已锁定 · EDIT-RUBBER-LOCKED";
+            StatusText.Text = "轨道已锁定 · KEYFR0100";
             return;
         }
         if ((keyframe is null && speedPoint is null) || !double.IsFinite(innerWidth) ||
             innerWidth <= 0)
         {
-            StatusText.Text = "橡皮筋节点不可拖动 · EDIT-RUBBER-STATE";
+            StatusText.Text = "橡皮筋节点不可拖动 · KEYFR0101";
             return;
         }
         if (property == "Speed" && clip.MulticamGroupId is not null)
         {
-            StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT";
+            StatusText.Text = "多机位切段需保持原速 · MLCAM0901";
             return;
         }
         if (!_project.Tracks.Contains(track) || !track.Clips.Contains(clip) ||
             (keyframe is not null && !clip.Keyframes.Contains(keyframe)) ||
             (speedPoint is not null && !clip.TimeRemapPoints.Contains(speedPoint)))
         {
-            StatusText.Text = "橡皮筋节点已变化 · EDIT-RUBBER-STATE";
+            StatusText.Text = "橡皮筋节点已变化 · KEYFR0101";
             return;
         }
         if (_movingClip || _trimmingStart || _trimmingEnd || _scrubbingPlayhead) return;
@@ -595,7 +595,7 @@ public partial class MainWindow
         args.Handled = true;
         if (track.IsLocked)
         {
-            StatusText.Text = "轨道已锁定 · VIS-KEYFRAME-BEZIER";
+            StatusText.Text = "轨道已锁定 · KEYFR0106";
             return;
         }
         if (!double.IsFinite(innerWidth) || innerWidth <= 0 ||
@@ -603,7 +603,7 @@ public partial class MainWindow
             !track.Clips.Contains(clip) || !clip.Keyframes.Contains(left) ||
             !clip.Keyframes.Contains(right))
         {
-            StatusText.Text = "贝塞尔节点已变化 · VIS-KEYFRAME-BEZIER";
+            StatusText.Text = "贝塞尔节点已变化 · KEYFR0106";
             return;
         }
         if (_movingClip || _trimmingStart || _trimmingEnd || _scrubbingPlayhead) return;
@@ -803,7 +803,7 @@ public partial class MainWindow
             }
             _rubberBandDrag = null;
             if (TimelineCanvas.IsMouseCaptured) TimelineCanvas.ReleaseMouseCapture();
-            StatusText.Text = "橡皮筋节点已变化 · EDIT-RUBBER-STATE";
+            StatusText.Text = "橡皮筋节点已变化 · KEYFR0101";
             return;
         }
         double framesPerSecond = double.IsFinite(_project.Sequence.FramesPerSecond) &&
@@ -865,14 +865,14 @@ public partial class MainWindow
             {
                 drag.SpeedPoint.TimeSeconds = oldTime;
                 drag.SpeedPoint.Speed = oldSpeed;
-                StatusText.Text = "速度节点超出源素材 · EDIT-RUBBER-SOURCE";
+                StatusText.Text = "速度节点超出源素材 · KEYFR0102";
                 return;
             }
             if (!double.IsFinite(sourceSpan))
             {
                 drag.SpeedPoint.TimeSeconds = oldTime;
                 drag.SpeedPoint.Speed = oldSpeed;
-                StatusText.Text = "速度节点时间映射无效 · EDIT-RUBBER-SOURCE";
+                StatusText.Text = "速度节点时间映射无效 · KEYFR0102";
                 return;
             }
         }
@@ -971,17 +971,17 @@ public partial class MainWindow
             track.IsLocked || !double.IsFinite(local) ||
             local >= clip.DurationSeconds || local < 0 ||
             !double.IsFinite(_project.Sequence.FramesPerSecond) || _project.Sequence.FramesPerSecond <= 0)
-        { StatusText.Text = "无法添加关键点 · EDIT-RUBBER-RANGE"; return; }
+        { StatusText.Text = "无法添加关键点 · KEYFR0103"; return; }
         double snapped = Math.Clamp(Math.Round(local * _project.Sequence.FramesPerSecond) /
             Math.Max(1, _project.Sequence.FramesPerSecond), 0, clip.DurationSeconds);
         if (snapped >= clip.DurationSeconds)
-        { StatusText.Text = "关键点必须位于片段内部 · EDIT-RUBBER-RANGE"; return; }
+        { StatusText.Text = "关键点必须位于片段内部 · KEYFR0103"; return; }
         if (property == "Speed")
         {
             if (clip.MulticamGroupId is not null)
-            { StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT"; return; }
+            { StatusText.Text = "多机位切段需保持原速 · MLCAM0901"; return; }
             if (clip.TimeRemapPoints.Any(point => Math.Abs(point.TimeSeconds - snapped) < .0001))
-            { StatusText.Text = "此时间已有速度节点 · EDIT-RUBBER-DUPLICATE"; return; }
+            { StatusText.Text = "此时间已有速度节点 · KEYFR0104"; return; }
             var point = new ClipTimeRemapPoint
             { TimeSeconds = snapped, Speed = ClipTimeMap.SpeedAt(clip, snapped) };
             clip.TimeRemapPoints.Add(point);
@@ -992,7 +992,7 @@ public partial class MainWindow
                     sourceSpan > sourceDuration - clip.SourceInSeconds + .001))
             {
                 clip.TimeRemapPoints.Remove(point);
-                StatusText.Text = "速度节点超出源素材 · EDIT-RUBBER-SOURCE";
+                StatusText.Text = "速度节点超出源素材 · KEYFR0102";
                 return;
             }
             clip.TimeRemapPoints.Remove(point);
@@ -1002,7 +1002,7 @@ public partial class MainWindow
         else
         {
             if (clip.Keyframes.Any(key => key.Property == property && Math.Abs(key.TimeSeconds - snapped) < .0001))
-            { StatusText.Text = "此时间已有关键帧 · EDIT-RUBBER-DUPLICATE"; return; }
+            { StatusText.Text = "此时间已有关键帧 · KEYFR0104"; return; }
             SaveUndoState();
             clip.Keyframes.Add(new ClipKeyframe
             { Property = property, TimeSeconds = snapped,
@@ -1016,11 +1016,11 @@ public partial class MainWindow
 
     private void EditRubberBandPoint(TimelineTrack track, TimelineClip clip, string property, double time)
     {
-        if (track.IsLocked) { StatusText.Text = "轨道已锁定 · EDIT-RUBBER-LOCKED"; return; }
+        if (track.IsLocked) { StatusText.Text = "轨道已锁定 · KEYFR0100"; return; }
         if (!_project.Tracks.Contains(track) || !track.Clips.Contains(clip))
-        { StatusText.Text = "片段已不在当前轨道 · EDIT-RUBBER-STATE"; return; }
+        { StatusText.Text = "片段已不在当前轨道 · KEYFR0101"; return; }
         if (property == "Speed" && clip.MulticamGroupId is not null)
-        { StatusText.Text = "多机位切段需保持原速 · MULTICAM-EDIT"; return; }
+        { StatusText.Text = "多机位切段需保持原速 · MLCAM0901"; return; }
         var dialog = new Window
         {
             Title = "编辑橡皮筋关键点", Owner = this,
@@ -1045,7 +1045,7 @@ public partial class MainWindow
         {
             if (!_project.Tracks.Contains(track) || track.IsLocked || !track.Clips.Contains(clip))
             {
-                StatusText.Text = "片段或轨道已变化 · EDIT-RUBBER-STATE";
+                StatusText.Text = "片段或轨道已变化 · KEYFR0101";
                 dialog.Close();
                 return;
             }
@@ -1054,7 +1054,7 @@ public partial class MainWindow
                 parsed < 0 || parsed > (property is "Speed" ? 32 : property is "Volume" ? 4 : 1) ||
                 property == "Speed" && parsed < .05)
             {
-                StatusText.Text = "关键点数值无效 · EDIT-RUBBER-VALUE";
+                StatusText.Text = "关键点数值无效 · KEYFR0105";
                 return;
             }
             if (property == "Speed")
@@ -1072,7 +1072,7 @@ public partial class MainWindow
                         sourceSpan > sourceDuration - clip.SourceInSeconds + .001))
                 {
                     point.Speed = originalSpeed;
-                    StatusText.Text = "速度节点超出源素材 · EDIT-RUBBER-SOURCE";
+                    StatusText.Text = "速度节点超出源素材 · KEYFR0102";
                     return;
                 }
                 point.Speed = originalSpeed;
@@ -1095,7 +1095,7 @@ public partial class MainWindow
         {
             if (!_project.Tracks.Contains(track) || track.IsLocked || !track.Clips.Contains(clip))
             {
-                StatusText.Text = "片段或轨道已变化 · EDIT-RUBBER-STATE";
+                StatusText.Text = "片段或轨道已变化 · KEYFR0101";
                 dialog.Close();
                 return;
             }
