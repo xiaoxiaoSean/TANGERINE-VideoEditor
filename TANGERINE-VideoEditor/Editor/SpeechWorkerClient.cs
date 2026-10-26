@@ -11,6 +11,8 @@ namespace TANGERINE_VideoEditor.Editor;
 /// <summary>Local stdio workers with independent protocol readers and deadlines.</summary>
 public sealed class SpeechWorkerClient : IDisposable
 {
+    internal static void WriteDiagnostic(string message) => SpeechDiagnostics.Write(message);
+
     private readonly WorkerSlot _devices = new();
     private readonly WorkerPool _cpu = new(SpeechPerformance.MaxWorkers);
     private readonly ConcurrentDictionary<string, WorkerPool> _gpu = new(StringComparer.OrdinalIgnoreCase);

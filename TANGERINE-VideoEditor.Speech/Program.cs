@@ -1,4 +1,5 @@
 using System.Text;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ElBruno.QwenTTS.Audio;
@@ -258,6 +259,7 @@ internal sealed class QwenSession : IDisposable
         }
         if (codes.GetLength(2) >= 2048) throw new SpeechFailure("VOICE0003", "句子过长，已达到生成上限，请拆分句子。");
         Progress("vocoder", "正在使用声码器合成音频");
+        long vocoderStarted = Stopwatch.GetTimestamp();
         float[] samples;
         if (referenceCodes is not null)
         {
@@ -273,6 +275,7 @@ internal sealed class QwenSession : IDisposable
             samples = _vocoder.Decode(joined, cancellationToken)[(prefix * Vocoder.SamplesPerFrame)..];
         }
         else samples = _vocoder.Decode(codes, cancellationToken);
+        Progress("vocoder", $"声码器已完成 · {Stopwatch.GetElapsedTime(vocoderStarted).TotalSeconds:F1} 秒 · {codes.GetLength(2)} 帧");
         if (samples.Length == 0 || samples.Any(x => !float.IsFinite(x))) throw new SpeechFailure("VOICE0003", "模型未产生有效语音。");
         cancellationToken.ThrowIfCancellationRequested();
         Progress("writing", "正在写入语音文件");

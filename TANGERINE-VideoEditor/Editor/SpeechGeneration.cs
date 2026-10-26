@@ -81,7 +81,9 @@ public static class SpeechGeneration
                             OutputPath = raw }, sentenceProgress, cancellation).ConfigureAwait(false);
                         backends[i] = message.Backend ?? backends[i];
                         double initialRate = part.HasInitialRate ? part.InitialRate / (s.Rate ?? data.Defaults.Rate) : 1;
-                        await SpeechAudio.ConvertAsync(raw, adjusted, initialRate, 0, 0, null, 48000, cancellation).ConfigureAwait(false);
+                        await SpeechAudio.ConvertAsync(raw, adjusted, initialRate, 0, 0, null, 48000, cancellation,
+                            fraction => progress?.Report(new($"第 {i + 1}/{total} 句 · 初始语速处理 {fraction:P0}",
+                                .8 * Volatile.Read(ref completed) / total, backends[i]))).ConfigureAwait(false);
                         partPaths.Add(adjusted);
                     }
                     string combined = Path.Combine(work, s.Id + "-raw.wav");
@@ -129,7 +131,9 @@ public static class SpeechGeneration
                 {
                     audio = Path.Combine(work, sentence.Id + "-audio.wav");
                     await SpeechAudio.ConvertAsync(rawPaths[sentence.Id], audio, sentence.EffectiveRate, pitch, 0, null,
-                        48000, cancellation).ConfigureAwait(false);
+                        48000, cancellation, fraction => progress?.Report(new(
+                            $"正在处理音频 {Volatile.Read(ref processed) + 1}/{total} · {fraction:P0}",
+                            .8 + .2 * Volatile.Read(ref processed) / total, data.Backend))).ConfigureAwait(false);
                     if (sentence.Anchor == SpeechAnchor.Window) SpeechAudio.FitWindow(audio, sentence.End - sentence.Start);
                     processedAssets[i] = Asset(audio, sentence.Text, SpeechAudio.Duration(audio), "sentence");
                     sentence.AudioAssetId = processedAssets[i]!.Id;

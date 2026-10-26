@@ -9021,7 +9021,7 @@ dotnet run --project tests/ExportCoverageCheck --configuration Debug -- --featur
 
 排查停滞可只读 `exe 同级的 data/Logs/speech-worker.log` 和 `.previous`，对比 PID、stage、noProgress、累计 cpu 秒及 private 字节；日志不含生成文本或录音。不要凭总占用率断定完成或失败，也不要自动改为网络服务。用户要求离线时不下载依赖；代码修改后使用 `dotnet build TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj --configuration Debug` 构建到默认目录。2026-10-26 的 SIMD、按需投影、原生 KV 复用和独立监控修改仅通过静态审查与编译，不能声称模型质量、驱动稳定性或速度已实测。
 
-工作进程每 15 秒采样一次 CPU 累计时间：增量达到 0.05 秒时记录 `running-cpu-progress` 并重置无进展计时；低于该值时记录 `running-no-cpu-progress`，计时继续累计。前者说明该进程仍在消耗 CPU，不代表 GPU 利用率或音频阶段已完成；排查接近完成时卡住的问题时，要结合 `stage`、`noProgress`、累计 `cpu`、`cpuDelta` 和 `private` 变化判断。
+工作进程每 15 秒采样一次 CPU 累计时间：增量达到 0.05 秒时记录 `running-cpu-progress` 并重置无进展计时；低于该值时记录 `running-no-cpu-progress`，计时继续累计。前者说明该进程仍在消耗 CPU，不代表 GPU 利用率或音频阶段已完成。声码器开始和完成事件带耗时与帧数；FFmpeg 变速/移调用 `-progress` 更新音频处理百分比，并在同一日志中记录 `audio-convert-start`、每 15 秒的 `audio-convert-running`、`audio-convert-complete`、`audio-convert-failure` 或 `audio-convert-timeout`，字段包括 PID、已处理音频秒数、CPU 增量、私有内存和输出字节数。排查接近完成时卡住的问题时，要结合 `stage`、`noProgress`、累计 `cpu`、`cpuDelta`、`private`、`outSeconds` 和 `outputBytes` 判断。当前日志仍不能证明之前观察到的末段停滞根因。
 
 GPU 图失败会另外记录 `graph-diagnostic`，保留故障图名称、异常类型与经脱敏的原生错误详情；`GPU_FULL_TO_HYBRID` 表示完整语言模型失败但仍尝试显卡编码预测器，`GPU_HYBRID_TO_CPU` 才表示自动模式转用 CPU。不要把前者解释为驱动未安装或整张显卡不可用。截图 VOICE0007 若包含旧 `.wav.part-<GUID>.wav` 超长路径，是已修复的转换暂存命名回归，需使用短暂存文件的新构建。Debug 产物不再包含 `dev_doc1`，开发文档在源码根目录阅读。
 
