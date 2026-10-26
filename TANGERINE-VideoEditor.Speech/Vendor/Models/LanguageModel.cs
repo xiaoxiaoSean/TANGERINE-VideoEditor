@@ -4,8 +4,12 @@ using Microsoft.ML.OnnxRuntime;
 
 namespace ElBruno.QwenTTS.Models;
 
-internal sealed class GpuGraphException(string graph, Exception inner)
-    : Exception($"DirectML 图 {graph} 推理失败：{inner.Message}", inner);
+internal sealed class GpuGraphException(string graph, string phase, Exception inner)
+    : Exception($"DirectML 图 {graph} {phase}失败：{inner.Message}", inner)
+{
+    public string Graph { get; } = graph;
+    public string Phase { get; } = phase;
+}
 
 /// <summary>
 /// ONNX language model for Qwen3-TTS.
@@ -88,8 +92,17 @@ internal sealed class LanguageModel : IDisposable
             string applicationRoot = Environment.GetEnvironmentVariable("TANGERINE_APP_ROOT") is { Length: > 0 } configured
                 ? Path.GetFullPath(configured)
                 : Directory.GetParent(AppContext.BaseDirectory)?.FullName ?? AppContext.BaseDirectory;
-            inferencePath = DmlGraphCompatibility.Prepare(modelPath,
-                Path.Combine(applicationRoot, "cache", "onnx-dml"));
+            try
+            {
+                inferencePath = DmlGraphCompatibility.Prepare(modelPath,
+                    Path.Combine(applicationRoot, "cache", "onnx-dml"));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or
+                                      ArgumentException or NotSupportedException or InvalidOperationException or
+                                      OverflowException or OutOfMemoryException or System.Security.SecurityException)
+            {
+                throw new GpuGraphException(fileName, "兼容缓存准备", e);
+            }
         }
         return new InferenceSession(inferencePath, options);
     }
@@ -101,7 +114,7 @@ internal sealed class LanguageModel : IDisposable
             e is (OnnxRuntimeException or OutOfMemoryException or InvalidOperationException or DllNotFoundException or
                 EntryPointNotFoundException or IOException or UnauthorizedAccessException or ArgumentException or
                 NotSupportedException or System.Security.SecurityException or OverflowException))
-        { throw new GpuGraphException(fileName, e); }
+        { throw new GpuGraphException(fileName, "推理", e); }
     }
 
     public long[,,] Generate(int[] tokenIds, string speaker, string language,
