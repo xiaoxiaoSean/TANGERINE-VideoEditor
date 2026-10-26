@@ -28,7 +28,7 @@
 
 正向播放使用已完成的整段缓存视频；暂停、倒放、拖动播放头或编辑时回到交互帧预览。声音继续使用现有时间线音频监视器，保留实时静音/独听。缓存不是正式交付文件，正式导出始终读取原项目数据。
 
-缓存位于 `%LOCALAPPDATA%\TANGERINE-VideoEditor\cache\timeline-v2`。完成后清理超过七天或历史累计超过约 2 GB 的非当前缓存；当前工程需要的段不在清理范围内。失败显示 PREVIEW-CACHE-RENDER / PREVIEW-CACHE-PLAY，恢复原预览能力，不影响保存与正式导出。
+缓存位于 exe 同级的 `cache/timeline-v4`。完成后清理超过七天或历史累计超过约 2 GB 的非当前缓存；当前工程需要的段不在清理范围内。失败显示 PREVIEW-CACHE-RENDER / PREVIEW-CACHE-PLAY，恢复原预览能力，不影响保存与正式导出。
 
 ## MCP 与文档
 

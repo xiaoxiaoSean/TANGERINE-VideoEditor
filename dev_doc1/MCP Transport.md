@@ -39,7 +39,7 @@ MCP 客户端配置示例；`args` 中的路径应替换成实际构建或发布
 
 ## 本地发现与生命周期
 
-实例注册位于 `%LOCALAPPDATA%\TANGERINE-VideoEditor\mcp\instances`。每个窗口进程生成随机实例标识、随机管道名称及认证令牌，每秒原子更新注册信息。发现时同时验证 PID 和进程启动时间，并清理已经退出的进程记录。
+实例注册位于 exe 同级的 `data/mcp/instances`。每个窗口进程生成随机实例标识、随机管道名称及认证令牌，每秒原子更新注册信息。发现时同时验证 PID 和进程启动时间，并清理已经退出的进程记录。
 
 命名管道使用 `PipeOptions.CurrentUserOnly`，仅供本机当前 Windows 用户使用，不开放 TCP 端口。认证令牌只在本地注册和管道握手中使用，`list_instances` 不公开令牌或管道名称。
 

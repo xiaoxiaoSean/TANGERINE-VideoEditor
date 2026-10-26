@@ -16,17 +16,17 @@ Windows 原生调试定位到 `av_frame_ref` 接收空帧，调用路径来自 `
 
 ## 错误诊断
 
-编码失败仍使用 `EXPRT0004`。错误信息增加十进制、十六进制退出码；无标准错误时说明编码器异常或原生访问冲突。诊断尽力写入 `%LOCALAPPDATA%\TANGERINE-VideoEditor\diagnostics\export`，包含实际编码器路径、完整 JSON 参数、标准错误和临时滤镜图。诊断写入失败不会覆盖原始错误，临时文件仍按原流程清理。
+编码失败仍使用 `EXPRT0004`。错误信息增加十进制、十六进制退出码；无标准错误时说明编码器异常或原生访问冲突。诊断尽力写入 exe 同级的 `data/diagnostics/export`，包含实际编码器路径、完整 JSON 参数、标准错误和临时滤镜图。诊断写入失败不会覆盖原始错误，临时文件仍按原流程清理。
 
 ## 检查范围与命令
 
-以下开发检查使用独立输出目录，避免覆盖仍然打开的旧版编辑器。先构建主项目，再给检查项目传入相同的 `OutputPath` 和 `BuildProjectReferences=false`。同一检查程序运行期间不可覆盖其 DLL；并行运行不同配置时使用独立输出目录。
+主程序每轮代码修改后按仓库规则构建到默认 Debug 目录。不要重定向主程序的 `OutputPath`；如果打开的程序锁定输出文件，保留该进程，待程序关闭后再构建。检查项目使用各自默认输出目录，不与主程序共享输出路径。
 
 ```powershell
-dotnet build TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj -p:OutputPath=bin/ExportAudit/ -p:UseAppHost=false
-dotnet run --project tests/RenderSmokeCheck -p:OutputPath=bin/ExportAudit/ -p:UseAppHost=false -p:BuildProjectReferences=false
-dotnet run --project tests/TransitionVisualCheck -p:OutputPath=bin/ExportAudit/ -p:UseAppHost=false -p:BuildProjectReferences=false -- artifacts/export-audit/transition-visual
-dotnet run --project tests/ExportCoverageCheck -p:OutputPath=bin/ExportAudit/ -p:UseAppHost=false -p:BuildProjectReferences=false -- --features artifacts/export-audit/features-preview-export
+dotnet build TANGERINE-VideoEditor/TANGERINE-VideoEditor.csproj --configuration Debug
+dotnet run --project tests/RenderSmokeCheck --configuration Debug
+dotnet run --project tests/TransitionVisualCheck --configuration Debug -- artifacts/export-audit/transition-visual
+dotnet run --project tests/ExportCoverageCheck --configuration Debug -- --features artifacts/export-audit/features-preview-export
 ```
 
 `RenderSmokeCheck` 覆盖 189 项：全部内置特效、转场开头/末尾/对象边界、特效关键帧、LUT、文字样式及示例视频取消/切换。最终版本 189 项全部通过，0 失败，日志位于 `artifacts/export-audit/render-final.log`。单个预设的通过不能替代完整多图层组合回归。
