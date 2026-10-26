@@ -348,11 +348,7 @@ public sealed class SpeechWorkerClient : IDisposable
                 catch (Exception error)
                 {
                     Exception failure = token.IsCancellationRequested ? new OperationCanceledException(token) : error;
-                    if (state.BeginFailure(failure))
-                    {
-                        _ = Retire(process);
-                        state.FinishFailure();
-                    }
+                    FinishFailureAfterRetirement(process, state, failure);
                 }
                 finally { state.ThreadExited(); }
             }) { IsBackground = true, Name = "Speech protocol" };
@@ -363,10 +359,9 @@ public sealed class SpeechWorkerClient : IDisposable
                     while (!state.WaitForCompletion(250))
                     {
                         Exception? failure = state.DeadlineFailure();
-                        if (failure is not null && state.BeginFailure(failure))
+                        if (failure is not null)
                         {
-                            _ = Retire(process);
-                            state.FinishFailure();
+                            FinishFailureAfterRetirement(process, state, failure);
                             return;
                         }
                         state.LogIfDue();
@@ -374,8 +369,8 @@ public sealed class SpeechWorkerClient : IDisposable
                 }
                 catch (Exception error)
                 {
-                    if (state.BeginFailure(new SpeechFailure("VOICE0002", "语音监控线程失败：" + error.Message, error)))
-                    { _ = Retire(process); state.FinishFailure(); }
+                    FinishFailureAfterRetirement(process, state,
+                        new SpeechFailure("VOICE0002", "语音监控线程失败：" + error.Message, error));
                 }
                 finally { state.ThreadExited(); }
             }) { IsBackground = true, Name = "Speech deadline" };
@@ -387,7 +382,19 @@ public sealed class SpeechWorkerClient : IDisposable
             }
             catch (Exception error)
             {
-                if (state.BeginFailure(error)) { _ = Retire(process); state.FinishFailure(); }
+                // This catch is asynchronous; wait without blocking the UI
+                // thread if either dedicated protocol thread cannot start.
+                if (state.BeginFailure(error))
+                {
+                    bool retired = false;
+                    try { retired = await Retire(process).ConfigureAwait(false); }
+                    catch (Exception retirementError)
+                    {
+                        SpeechDiagnostics.Write("worker-retirement-error pid=" + SafeId(process) + " code=" + retirementError.GetType().Name);
+                    }
+                    if (!retired) state.RetirementUnconfirmed();
+                    state.FinishFailure();
+                }
                 if (!readerStarted) state.ThreadExited();
                 if (!watchdogStarted) state.ThreadExited();
             }
@@ -400,6 +407,19 @@ public sealed class SpeechWorkerClient : IDisposable
                     throw new SpeechFailure("VOICE0002", "语音工作进程未能确认退出；临时音频文件已保留。");
                 throw;
             }
+        }
+
+        private void FinishFailureAfterRetirement(Process process, RequestState state, Exception failure)
+        {
+            if (!state.BeginFailure(failure)) return;
+            bool retired = false;
+            try { retired = Retire(process).GetAwaiter().GetResult(); }
+            catch (Exception error)
+            {
+                SpeechDiagnostics.Write("worker-retirement-error pid=" + SafeId(process) + " code=" + error.GetType().Name);
+            }
+            if (!retired) state.RetirementUnconfirmed();
+            state.FinishFailure();
         }
 
         private static string UiPhase(string? stage) => stage switch
@@ -556,6 +576,7 @@ public sealed class SpeechWorkerClient : IDisposable
             private readonly int _pid;
             private readonly long _started = Stopwatch.GetTimestamp();
             private long _lastProgress = Stopwatch.GetTimestamp(), _lastLog = Stopwatch.GetTimestamp();
+            private double _lastCpuSeconds;
             private string _stage = "starting", _key = "";
             private string? _backend, _gpuMode;
             private Exception? _failure;
@@ -564,6 +585,7 @@ public sealed class SpeechWorkerClient : IDisposable
             public RequestState(string command, Process process, CancellationToken token)
             {
                 _command = command; _process = process; _pid = SafeId(process); _token = token;
+                _lastCpuSeconds = ReadCpuSeconds();
                 SpeechDiagnostics.Write("start pid=" + _pid + " command=" + command);
             }
             public void RecordDiagnostic(SpeechEvent message)
@@ -630,12 +652,33 @@ public sealed class SpeechWorkerClient : IDisposable
                     _completed.Set();
                 }
             }
+            public void RetirementUnconfirmed()
+            {
+                lock (_sync)
+                    if (!_finished)
+                        _failure = new SpeechFailure("VOICE0002", "语音工作进程未能确认退出；临时音频文件已保留。");
+            }
             public void LogIfDue()
             {
                 lock (_sync)
-                    if (!_finished && Stopwatch.GetElapsedTime(_lastLog) >= TimeSpan.FromSeconds(15)) { Log("running"); _lastLog = Stopwatch.GetTimestamp(); }
+                {
+                    if (_finished || Stopwatch.GetElapsedTime(_lastLog) < TimeSpan.FromSeconds(15)) return;
+                    long now = Stopwatch.GetTimestamp();
+                    double cpuSeconds = ReadCpuSeconds();
+                    double cpuDelta = cpuSeconds >= 0 && _lastCpuSeconds >= 0 ? cpuSeconds - _lastCpuSeconds : 0;
+                    _lastCpuSeconds = cpuSeconds;
+                    if (cpuDelta >= .05) _lastProgress = now;
+                    Log(cpuDelta >= .05 ? "running-cpu-progress" : "running-no-cpu-progress", cpuDelta);
+                    _lastLog = now;
+                }
             }
-            private void Log(string status)
+            private double ReadCpuSeconds()
+            {
+                try { _process.Refresh(); return _process.TotalProcessorTime.TotalSeconds; }
+                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or ObjectDisposedException)
+                { return -1; }
+            }
+            private void Log(string status, double? cpuDelta = null)
             {
                 // Diagnostics must never prevent a request from publishing its result.
                 try
@@ -643,7 +686,8 @@ public sealed class SpeechWorkerClient : IDisposable
                     double cpu = 0; long memory = 0;
                     try { _process.Refresh(); cpu = _process.TotalProcessorTime.TotalSeconds; memory = _process.PrivateMemorySize64; }
                     catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-                    SpeechDiagnostics.Write(FormattableString.Invariant($"{status} pid={_pid} stage={_stage} gpu={_gpuMode} elapsed={Stopwatch.GetElapsedTime(_started).TotalSeconds:F1}s noProgress={Stopwatch.GetElapsedTime(_lastProgress).TotalSeconds:F1}s cpu={cpu:F2}s private={memory} backend={_backend}"));
+                    string delta = cpuDelta is double value ? FormattableString.Invariant($" cpuDelta={value:F2}s") : "";
+                    SpeechDiagnostics.Write(FormattableString.Invariant($"{status} pid={_pid} stage={_stage} gpu={_gpuMode} elapsed={Stopwatch.GetElapsedTime(_started).TotalSeconds:F1}s noProgress={Stopwatch.GetElapsedTime(_lastProgress).TotalSeconds:F1}s cpu={cpu:F2}s private={memory} backend={_backend}") + delta);
                 }
                 catch (Exception) { }
             }
