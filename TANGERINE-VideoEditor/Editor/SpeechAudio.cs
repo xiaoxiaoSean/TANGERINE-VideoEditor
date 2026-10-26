@@ -28,7 +28,14 @@ public static class SpeechAudio
         input = Path.GetFullPath(input);
         if (!File.Exists(input))
             throw new SpeechFailure("VOICE0007", "音频处理输入文件不存在：" + input);
-        double expectedDuration = Math.Max(0, (duration ?? Math.Max(0, Duration(input) - start)) / rate);
+        double sourceDuration = duration ?? 0;
+        if (duration is null)
+        {
+            try { sourceDuration = Math.Max(0, Duration(input) - start); }
+            catch (Exception e) when (e is SpeechFailure or IOException) { }
+        }
+        double expectedDuration = Math.Max(0, sourceDuration / rate);
+        long inputBytes = new FileInfo(input).Length;
         output = Path.GetFullPath(output);
         string outputDirectory = Path.GetDirectoryName(output)!;
         Directory.CreateDirectory(outputDirectory);
@@ -47,7 +54,7 @@ public static class SpeechAudio
         long started = Stopwatch.GetTimestamp();
         long lastOutputTime = 0;
         SpeechWorkerClient.WriteDiagnostic(FormattableString.Invariant(
-            $"audio-convert-start pid={process.Id} inputBytes={new FileInfo(input).Length} expectedSeconds={expectedDuration:F2} rate={rate:F3} pitch={pitch:F2}"));
+            $"audio-convert-start pid={process.Id} inputBytes={inputBytes} expectedSeconds={expectedDuration:F2} rate={rate:F3} pitch={pitch:F2}"));
         void StopEncoder()
         {
             try { if (!process.HasExited) process.Kill(true); }
@@ -87,7 +94,7 @@ public static class SpeechAudio
         try
         {
             Task<string> errors = process.StandardError.ReadToEndAsync(cancellation.Token);
-            Task progress = ReadProgressAsync(process.StandardOutput, expectedDuration, cancellation.Token, value =>
+            Task progress = ReadProgressAsync(process.StandardOutput, cancellation.Token, value =>
             {
                 Interlocked.Exchange(ref lastOutputTime, value);
                 onProgress?.Invoke(expectedDuration <= 0 ? 0 : Math.Clamp(value / 1_000_000d / expectedDuration, 0, 1));
@@ -141,19 +148,15 @@ public static class SpeechAudio
         }
     }
 
-    private static async Task ReadProgressAsync(StreamReader output, double expectedDuration,
-        CancellationToken token, Action<long> report)
+    private static async Task ReadProgressAsync(StreamReader output, CancellationToken token, Action<long> report)
     {
-        long lastReported = -1;
         while (await output.ReadLineAsync(token).ConfigureAwait(false) is { } line)
         {
             if (!line.StartsWith("out_time_us=", StringComparison.Ordinal) ||
                 !long.TryParse(line.AsSpan("out_time_us=".Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ||
-                value == lastReported) continue;
-            lastReported = value;
+                value < 0) continue;
             report(value);
         }
-        if (expectedDuration > 0 && lastReported >= 0) report(lastReported);
     }
     // All generated files are PCM. Read their actual sample count rather than
     // trusting estimates from text length or synthesis token counts.
