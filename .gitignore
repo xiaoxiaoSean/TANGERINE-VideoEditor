@@ -364,3 +364,10 @@ FodyWeavers.xsd
 
 # Source downloads used only while curating the bundled music assets.
 tools/.builtin-music-collection/
+
+# Private editor projects, generated media and user-created voice profiles.
+/data/
+/cache/
+**/data/voices/
+*.tvevcv
+*.tvep
