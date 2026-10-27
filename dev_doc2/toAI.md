@@ -9023,7 +9023,7 @@ dotnet run --project tests/ExportCoverageCheck --configuration Debug -- --featur
 
 工作进程每 15 秒采样一次 CPU 累计时间：增量达到 0.05 秒时记录 `running-cpu-progress` 并重置无进展计时；低于该值时记录 `running-no-cpu-progress`，计时继续累计。前者说明该进程仍在消耗 CPU，不代表 GPU 利用率或音频阶段已完成。声码器开始和完成事件带耗时与帧数；FFmpeg 变速/移调用 `-progress` 更新音频处理百分比，并在同一日志中记录 `audio-convert-start`、每 15 秒的 `audio-convert-running`、`audio-convert-complete`、`audio-convert-failure` 或 `audio-convert-timeout`，字段包括 PID、已处理音频秒数、CPU 增量、私有内存和输出字节数。排查接近完成时卡住的问题时，要结合 `stage`、`noProgress`、累计 `cpu`、`cpuDelta`、`private`、`outSeconds` 和 `outputBytes` 判断。当前日志仍不能证明之前观察到的末段停滞根因。
 
-GPU 图失败会另外记录 `graph-diagnostic`，保留故障图名称、异常类型与经脱敏的原生错误详情；`GPU_FULL_TO_HYBRID` 表示完整语言模型失败但仍尝试显卡编码预测器，`GPU_HYBRID_TO_CPU` 才表示自动模式转用 CPU。不要把前者解释为驱动未安装或整张显卡不可用。截图 VOICE0007 若包含旧 `.wav.part-<GUID>.wav` 超长路径，是已修复的转换暂存命名回归，需使用短暂存文件的新构建。Debug 产物不再包含 `dev_doc1`，开发文档在源码根目录阅读。
+GPU 图失败会另外记录 `graph-diagnostic`，保留故障图名称、异常类型与经脱敏的原生错误详情；`GPU_FULL_TO_HYBRID` 表示完整语言模型失败但仍尝试显卡编码预测器，`GPU_HYBRID_TO_CPU` 才表示自动模式转用 CPU。不要把前者解释为驱动未安装或整张显卡不可用。2026-10-27 的 VOICE0007 日志显示 GPU 混合推理已经完成，随后随附 FFmpeg 无法打开 266 字符的绝对输入路径；之前仅缩短输出文件名的修正未覆盖这个输入。新构建在 exe 同级 `cache/temp/speech-audio-<GUID>` 内使用短输入和输出文件名，成功后由 .NET 移入工程缓存。排查时对比 `audio-convert-start` 的 `inputBytes` 与 `audio-convert-failure`：若前者非零而 FFmpeg 报输入不存在，先检查长路径兼容，不要归因于 GPU 或推断输入在转换前已经被删除。Debug 产物不包含 `dev_doc1`，开发文档在源码根目录阅读。
 
 `speech_tracks` 返回专用轨道 ID、设置与句子稳定 ID。`speech_preview({trackId,sentenceId})` 试听生成句子，`speech_preview_stop` 停止并恢复工程预览；`editor_get_state.preview.mode` 为 `speech`。语音、内置音乐、示例共用独占播放所有权，新的试听会撤销旧请求，不需要操作播放按钮。
 
