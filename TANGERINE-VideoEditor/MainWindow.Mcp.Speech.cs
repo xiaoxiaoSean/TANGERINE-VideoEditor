@@ -51,7 +51,15 @@ public partial class MainWindow
                     if (value.Fraction >= 0) { meter.Value = value.Fraction; progress.Report(value.Fraction); }
                 });
                 window.Show();
-                try { return await work(report, linked.Token); }
+                try
+                {
+                    object? result = await work(report, linked.Token);
+                    job.Phase = "completed";
+                    job.Detail = title + "已完成";
+                    if (job.TotalUnits is int total) job.CompletedUnits = total;
+                    progress.Report(1);
+                    return result;
+                }
                 finally { finished = true; if (window.IsVisible) window.Close(); }
             }));
         });
