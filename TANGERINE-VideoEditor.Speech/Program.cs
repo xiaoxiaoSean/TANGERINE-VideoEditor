@@ -202,6 +202,7 @@ internal sealed class QwenSession : IDisposable
         void Progress(string stage, string message) => report(new SpeechEvent { Stage = stage, Message = message, Backend = Backend });
         long graphOperation = 0;
         long lastGraphReport = 0;
+        string? lastGraphStage = null;
         void GraphProgress(string graph, bool gpu, bool completed, int frame, int group)
         {
             if (completed) ++graphOperation;
@@ -211,8 +212,9 @@ internal sealed class QwenSession : IDisposable
             long now = Stopwatch.GetTimestamp();
             // A codec frame runs 15 dependent predictor graphs. Reporting before
             // and after every Run flushes thousands of cross-process JSON lines.
-            if (frame >= 0 && lastGraphReport != 0 &&
+            if (frame >= 0 && stage == lastGraphStage && lastGraphReport != 0 &&
                 Stopwatch.GetElapsedTime(lastGraphReport, now) < TimeSpan.FromSeconds(1)) return;
+            lastGraphStage = stage;
             lastGraphReport = now;
             string name = graph == "talker_prefill.onnx" ? "语言模型预填充"
                 : graph == "talker_decode.onnx" ? "语言模型解码" : "编码预测器";
