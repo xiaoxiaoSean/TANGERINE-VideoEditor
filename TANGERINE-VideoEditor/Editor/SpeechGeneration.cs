@@ -63,7 +63,9 @@ public static class SpeechGeneration
                 s.RawAssetId is not { } id || !existing.TryGetValue(id, out MediaAsset? raw) || !File.Exists(raw.EffectiveExportPath));
             int requestedWorkers = InferenceWorkers(data.ModelSize, data.Device);
             int concurrentSentences = Math.Max(1, Math.Min(pending, requestedWorkers));
-            int cpuThreads = SpeechPerformance.ThreadsPerWorker(concurrentSentences);
+            // Keep auto workers on the same ORT thread configuration when a
+            // later one-sentence edit reuses their already-loaded model.
+            int cpuThreads = SpeechPerformance.ThreadsPerWorker(data.Device == "auto" ? 2 : concurrentSentences);
             var paths = new string[total];
             var rawAssets = new MediaAsset?[total];
             var backends = new string?[total];
