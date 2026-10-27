@@ -42,13 +42,21 @@ public static class SpeechGeneration
             var voices = SpeechAssets.Voices().ToDictionary(v => v.Id);
             int total = data.Sentences.Count, completed = 0;
             object progressLock = new();
-            void ReportInference(string message, string? backend)
+            var active = new Dictionary<int, (string Message, string? Backend)>();
+            void ReportInference(int index, string message, string? backend, bool finished = false)
             {
                 lock (progressLock)
                 {
-                    int done = Volatile.Read(ref completed);
-                    progress?.Report(new($"原始语音已完成 {done}/{total} 句 · {message}", -1, backend)
-                        { CompletedUnits = done, TotalUnits = total });
+                    if (finished) { active.Remove(index); completed++; }
+                    else active[index] = (message, backend);
+                    string detail = string.Join("\n", active.OrderBy(item => item.Key)
+                        .Select(item => $"第 {item.Key + 1}/{total} 句 · {item.Value.Message}"));
+                    string[] devices = active.Values.Select(item => item.Backend)
+                        .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().Select(value => value!).ToArray();
+                    string summary = $"原始语音已完成 {completed}/{total} 句";
+                    progress?.Report(new(detail.Length > 0 ? summary + "\n" + detail : summary, -1,
+                        devices.Length > 0 ? string.Join(" / ", devices) : null)
+                        { CompletedUnits = completed, TotalUnits = total });
                 }
             }
             int pending = data.Sentences.Count(s => forceSentenceId == s.Id || s.Fingerprint != Fingerprint(s, data) ||
@@ -74,7 +82,7 @@ public static class SpeechGeneration
             {
                 cancellation.ThrowIfCancellationRequested(); SpeechSentence s = data.Sentences[i];
                 string fingerprint = Fingerprint(s, data);
-                ReportInference($"准备第 {i + 1}/{total} 句", data.Backend);
+                ReportInference(i, "准备中", device == "cpu" ? "CPU" : "DirectML 自动选择中");
                 if (forceSentenceId != s.Id && s.Fingerprint == fingerprint && s.RawAssetId is { } rawId &&
                     existing.TryGetValue(rawId, out MediaAsset? reusable) && File.Exists(reusable.EffectiveExportPath))
                     paths[i] = reusable.EffectiveExportPath;
@@ -92,8 +100,7 @@ public static class SpeechGeneration
                         if (string.IsNullOrWhiteSpace(part.Text)) continue;
                         string raw = Path.Combine(work, $"{s.Id}-part-{partIndex}.wav");
                         string adjusted = Path.Combine(work, $"{s.Id}-initial-{partIndex++}.wav");
-                        var sentenceProgress = new InlineProgress(p => ReportInference(
-                            $"第 {i + 1}/{total} 句 · {p.Message}", p.Backend));
+                        var sentenceProgress = new InlineProgress(p => ReportInference(i, p.Message, p.Backend));
                         var message = await worker.SendAsync(new SpeechRequest { ModelPath = model, Device = device, CpuThreads = cpuThreads,
                             Text = part.Text, Speaker = voice.Id, ReferencePath = voice.ReferencePath,
                             ReferenceText = voice.ReferenceText, Language = part.Language == "auto" ? s.Language ?? data.Defaults.Language : part.Language,
@@ -101,7 +108,7 @@ public static class SpeechGeneration
                         backends[i] = message.Backend ?? backends[i];
                         double initialRate = part.HasInitialRate ? part.InitialRate / (s.Rate ?? data.Defaults.Rate) : 1;
                         await SpeechAudio.ConvertAsync(raw, adjusted, initialRate, 0, 0, null, 48000, cancellation,
-                            fraction => ReportInference($"第 {i + 1}/{total} 句 · 初始语速处理 {fraction:P0}", backends[i]))
+                            fraction => ReportInference(i, $"初始语速处理 {fraction:P0}", backends[i]))
                             .ConfigureAwait(false);
                         partPaths.Add(adjusted);
                     }
@@ -115,8 +122,7 @@ public static class SpeechGeneration
                     foreach (SpeechPart part in parts) { part.InitialRate = 1; part.HasInitialRate = false; }
                     s.Parts = MergeParts(parts); s.Fingerprint = Fingerprint(s, data);
                 }
-                Interlocked.Increment(ref completed);
-                ReportInference($"第 {i + 1}/{total} 句已完成", backends[i]);
+                ReportInference(i, "", backends[i], finished: true);
             }
             // Auto can run one DirectML session alongside CPU sessions. An
             // explicit adapter never silently sends sentences to the CPU.
@@ -186,7 +192,9 @@ public static class SpeechGeneration
             // chunks. Old generations remain under the document's cache lease.
             var retained = assets.Select(a => a.SourcePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (string file in Directory.GetFiles(work)) if (!retained.Contains(file)) File.Delete(file);
-            progress?.Report(new("语音生成完成", 1, data.Backend)); return result;
+            progress?.Report(new("音频已处理完成，正在确认位置与提交", -1, data.Backend)
+                { CompletedUnits = total, TotalUnits = total });
+            return result;
         }
         catch
         {
@@ -218,11 +226,13 @@ public static class SpeechGeneration
         if (!GlobalMemoryStatusEx(ref status)) return 1;
         const ulong gib = 1024UL * 1024 * 1024;
         // A 0.6B hybrid worker reached 8.5 GiB private bytes on this model.
-        // Budget whole replicas plus room for the editor and Windows; unused
-        // memory is preferable to paging two autoregressive sessions.
-        ulong replica = modelSize == "1.7b" ? 20 * gib : 9 * gib;
-        ulong available = status.AvailablePhysical > 3 * gib ? status.AvailablePhysical - 3 * gib : 0;
-        return (int)Math.Clamp(available / replica, 1UL, (ulong)SpeechPerformance.SentenceWorkers(modelSize));
+        // Allow some paging to run an independent CPU sentence beside Arc;
+        // leave a small reserve so the editor can still respond to cancellation.
+        ulong replica = modelSize == "1.7b" ? 20 * gib : 8 * gib;
+        ulong available = status.AvailablePhysical > gib / 2 ? status.AvailablePhysical - gib / 2 : 0;
+        int limit = device == "auto" ? Math.Min(2, SpeechPerformance.SentenceWorkers(modelSize))
+            : SpeechPerformance.SentenceWorkers(modelSize);
+        return (int)Math.Clamp(available / replica, 1UL, (ulong)limit);
     }
     public static List<SpeechPart> MergeParts(IEnumerable<SpeechPart> parts)
     {
