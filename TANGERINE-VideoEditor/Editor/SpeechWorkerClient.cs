@@ -170,7 +170,9 @@ public sealed class SpeechWorkerClient : IDisposable
 
     private async Task<SpeechEvent> SendOnCpuAsync(SpeechRequest request, IProgress<SpeechProgress>? progress, CancellationToken token)
     {
-        WorkerSlot slot = await _cpu.EnterAsync(token).ConfigureAwait(false);
+        int threads = request.CpuThreads > 0 ? Math.Clamp(request.CpuThreads, 1, Environment.ProcessorCount)
+            : SpeechPerformance.ThreadsPerWorker(SpeechPerformance.MaxWorkers);
+        WorkerSlot slot = await _cpu.EnterAsync(token, request.ModelPath, threads).ConfigureAwait(false);
         try { return await slot.RunAsync(request, progress, token).ConfigureAwait(false); }
         finally { _cpu.Leave(slot); }
     }
@@ -240,13 +242,28 @@ public sealed class SpeechWorkerClient : IDisposable
         public int WarmCount(string modelPath, int cpuThreads) =>
             _slots.Count(slot => slot.IsWarmFor(modelPath, cpuThreads));
 
-        public async Task<WorkerSlot> EnterAsync(CancellationToken token)
+        public async Task<WorkerSlot> EnterAsync(CancellationToken token, string? modelPath = null, int cpuThreads = 0)
         {
             await _available.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 token.ThrowIfCancellationRequested();
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, this);
+                if (modelPath is not null)
+                {
+                    foreach (WorkerSlot slot in _slots)
+                    {
+                        if (!slot.Gate.Wait(0)) continue;
+                        if (slot.IsWarmFor(modelPath, cpuThreads)) return slot;
+                        slot.Gate.Release();
+                    }
+                    foreach (WorkerSlot slot in _slots)
+                    {
+                        if (!slot.Gate.Wait(0)) continue;
+                        if (slot.IsCold) return slot;
+                        slot.Gate.Release();
+                    }
+                }
                 foreach (WorkerSlot slot in _slots) if (slot.Gate.Wait(0)) return slot;
                 throw new InvalidOperationException("语音工作进程队列状态无效。");
             }
@@ -529,6 +546,10 @@ public sealed class SpeechWorkerClient : IDisposable
                 return !_closed && !_active && _process is { } process && !process.HasExited &&
                     _cpuThreads == cpuThreads &&
                     string.Equals(_sessionModelPath, modelPath, StringComparison.OrdinalIgnoreCase);
+        }
+        public bool IsCold
+        {
+            get { lock (_processLock) return _process is null || _process.HasExited; }
         }
         public async Task<bool> RetireIfIdleAsync()
         {
