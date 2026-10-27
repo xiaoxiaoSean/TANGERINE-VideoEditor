@@ -77,17 +77,18 @@ public sealed class SpeechWorkerClient : IDisposable
 
     private static string DeviceModelKey(string device, string model) => device + "|" + Path.GetFullPath(model);
 
-    public int WarmAutomaticReplicas(string modelPath, int cpuThreads)
+    public async Task<(bool GpuAvailable, bool GpuWarm, int CpuWarm)> AutomaticLaneResidencyAsync(
+        string modelPath, int cpuThreads, CancellationToken token)
     {
+        string device = await AutomaticDeviceAsync(null, token).ConfigureAwait(false);
         lock (_deviceLock)
         {
-            if (_disposed) return 0;
+            ObjectDisposedException.ThrowIf(_disposed, this);
             int count = _cpu.WarmCount(modelPath, cpuThreads);
-            if (_automaticDevice is { } device && device != "cpu" &&
-                !_failedAutomaticGpu.ContainsKey(DeviceModelKey(device, modelPath)) &&
-                _gpu.TryGetValue(device, out WorkerPool? gpu))
-                count += gpu.WarmCount(modelPath, cpuThreads);
-            return count;
+            bool gpuAvailable = device != "cpu" && !_failedAutomaticGpu.ContainsKey(DeviceModelKey(device, modelPath));
+            bool gpuWarm = gpuAvailable &&
+                _gpu.TryGetValue(device, out WorkerPool? gpu) && gpu.WarmCount(modelPath, cpuThreads) > 0;
+            return (gpuAvailable, gpuWarm, count);
         }
     }
 

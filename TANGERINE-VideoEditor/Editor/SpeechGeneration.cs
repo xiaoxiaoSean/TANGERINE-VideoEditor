@@ -68,9 +68,11 @@ public static class SpeechGeneration
                     throw new SpeechFailure("VOICE0006", "音色不存在，请重新选择音色。");
                 return SpeechAssets.ModelPath(voice.Builtin ? "custom-" + data.ModelSize : "base-0.6b");
             }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            int warm = data.Device == "auto" && models.Length == 1
-                ? worker.WarmAutomaticReplicas(models[0], SpeechPerformance.ThreadsPerWorker(2)) : 0;
-            int requestedWorkers = InferenceWorkers(data.ModelSize, data.Device, warm);
+            var residency = data.Device == "auto" && models.Length == 1
+                ? await worker.AutomaticLaneResidencyAsync(models[0], SpeechPerformance.ThreadsPerWorker(2), token)
+                    .ConfigureAwait(false)
+                : (GpuAvailable: true, GpuWarm: false, CpuWarm: 0);
+            int requestedWorkers = InferenceWorkers(data.ModelSize, data.Device, residency);
             int concurrentSentences = Math.Max(1, Math.Min(pending, requestedWorkers));
             // Keep auto workers on the same ORT thread configuration when a
             // later one-sentence edit reuses their already-loaded model.
@@ -230,20 +232,25 @@ public static class SpeechGeneration
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
 
-    private static int InferenceWorkers(string modelSize, string device, int warmReplicas)
+    private static int InferenceWorkers(string modelSize, string device,
+        (bool GpuAvailable, bool GpuWarm, int CpuWarm) residency)
     {
         if (device != "auto" && device != "cpu") return 1;
         var status = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
         if (!GlobalMemoryStatusEx(ref status)) return 1;
         const ulong gib = 1024UL * 1024 * 1024;
-        // A 0.6B hybrid worker reached 8.5 GiB private bytes on this model.
-        // Allow some paging to run an independent CPU sentence beside Arc;
-        // leave a small reserve so the editor can still respond to cancellation.
-        ulong replica = modelSize == "1.7b" ? 20 * gib : 8 * gib;
+        // The local 0.6B session reached 8.5 GiB private bytes. Allow modest
+        // paging for two independent lanes while keeping runtime KV headroom.
+        ulong replica = modelSize == "1.7b" ? 20 * gib : 15 * gib / 2;
         ulong available = status.AvailablePhysical > gib / 2 ? status.AvailablePhysical - gib / 2 : 0;
         int limit = device == "auto" ? Math.Min(2, SpeechPerformance.SentenceWorkers(modelSize))
             : SpeechPerformance.SentenceWorkers(modelSize);
-        return (int)Math.Clamp(available / replica + (ulong)warmReplicas, 1UL, (ulong)limit);
+        if (device != "auto") return (int)Math.Clamp(available / replica, 1UL, (ulong)limit);
+        ulong first = residency.GpuAvailable
+            ? (residency.GpuWarm ? gib : replica)
+            : (residency.CpuWarm > 0 ? gib : replica);
+        ulong second = residency.CpuWarm > (residency.GpuAvailable ? 0 : 1) ? gib : replica;
+        return limit > 1 && available >= first + second ? 2 : 1;
     }
     public static List<SpeechPart> MergeParts(IEnumerable<SpeechPart> parts)
     {
