@@ -11,7 +11,7 @@ public static class SpeechAudio
     private sealed record PcmInfo(int Rate, long DataOffset, int DataLength);
     private static string N(double v) => v.ToString("0.########", CultureInfo.InvariantCulture);
     public static async Task ConvertAsync(string input, string output, double rate, double pitch,
-        double start, double? duration, int sampleRate, CancellationToken token, Action<double>? onProgress = null)
+        double start, double? duration, int sampleRate, CancellationToken token, Action<double>? onOutputSeconds = null)
     {
         token.ThrowIfCancellationRequested();
         if (!double.IsFinite(rate) || rate <= 0 || !double.IsFinite(pitch) || pitch is < -12 or > 12)
@@ -120,7 +120,7 @@ public static class SpeechAudio
             Task progress = ReadProgressAsync(process.StandardOutput, cancellation.Token, value =>
             {
                 Interlocked.Exchange(ref lastOutputTime, value);
-                onProgress?.Invoke(expectedDuration <= 0 ? 0 : Math.Clamp(value / 1_000_000d / expectedDuration, 0, 1));
+                onOutputSeconds?.Invoke(value / 1_000_000d);
             });
             Task drained = Task.WhenAll(process.WaitForExitAsync(cancellation.Token), errors, progress);
             // Observe pipe failures even if cancellation wins the outer wait.

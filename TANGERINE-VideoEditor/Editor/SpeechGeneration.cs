@@ -121,7 +121,7 @@ public static class SpeechGeneration
                         backends[i] = message.Backend ?? backends[i];
                         double initialRate = part.HasInitialRate ? part.InitialRate / (s.Rate ?? data.Defaults.Rate) : 1;
                         await SpeechAudio.ConvertAsync(raw, adjusted, initialRate, 0, 0, null, 48000, cancellation,
-                            fraction => ReportInference(i, $"初始语速处理 {fraction:P0}", backends[i]))
+                            outputSeconds => ReportInference(i, $"初始语速处理 · 已输出音频 {outputSeconds:0.0} 秒", backends[i]))
                             .ConfigureAwait(false);
                         partPaths.Add(adjusted);
                     }
@@ -156,6 +156,18 @@ public static class SpeechGeneration
                 { Phase = "audio", CompletedUnits = 0, TotalUnits = total });
             var processedAssets = new MediaAsset?[total];
             int processed = 0;
+            object audioProgressLock = new();
+            void ReportAudio(int index, double? outputSeconds = null, bool finished = false)
+            {
+                lock (audioProgressLock)
+                {
+                    if (finished) processed++;
+                    string detail = outputSeconds is double seconds
+                        ? $" · 第 {index + 1} 句已输出音频 {seconds:0.0} 秒" : "";
+                    progress?.Report(new($"音频已处理 {processed}/{total} 句{detail}", -1, data.Backend)
+                        { Phase = "audio", CompletedUnits = processed, TotalUnits = total });
+                }
+            }
             await Parallel.ForEachAsync(Enumerable.Range(0, total), new ParallelOptions
             {
                 MaxDegreeOfParallelism = SpeechPerformance.MaxWorkers,
@@ -174,10 +186,9 @@ public static class SpeechGeneration
                 else
                 {
                     audio = Path.Combine(work, sentence.Id + "-audio.wav");
+                    ReportAudio(i);
                     await SpeechAudio.ConvertAsync(rawPaths[sentence.Id], audio, sentence.EffectiveRate, pitch, 0, null,
-                        48000, cancellation, fraction => progress?.Report(new(
-                            $"音频已处理 {Volatile.Read(ref processed)}/{total} 句 · 第 {i + 1} 句 {fraction:P0}",
-                            -1, data.Backend) { Phase = "audio", CompletedUnits = Volatile.Read(ref processed), TotalUnits = total }))
+                        48000, cancellation, outputSeconds => ReportAudio(i, outputSeconds))
                         .ConfigureAwait(false);
                     if (sentence.Anchor == SpeechAnchor.Window) SpeechAudio.FitWindow(audio, sentence.End - sentence.Start);
                     processedAssets[i] = Asset(audio, sentence.Text, SpeechAudio.Duration(audio), "sentence");
@@ -185,9 +196,7 @@ public static class SpeechGeneration
                 }
                 sentence.Duration = SpeechAudio.Duration(audio);
                 sentence.AudioFingerprint = acoustic;
-                int done = Interlocked.Increment(ref processed);
-                progress?.Report(new($"音频已处理 {done}/{total} 句", -1, data.Backend)
-                    { Phase = "audio", CompletedUnits = done, TotalUnits = total });
+                ReportAudio(i, finished: true);
             }).ConfigureAwait(false);
             assets.AddRange(processedAssets.OfType<MediaAsset>());
             double previousEnd = data.Origin;
