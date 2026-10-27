@@ -43,4 +43,16 @@
     <MSBuild Projects="$(MSBuildProjectDirectory)\..\TANGERINE-VideoEditor.Mcp\TANGERINE-VideoEditor.Mcp.csproj" Targets="Publish" Properties="Configuration=$(Configuration);TargetFramework=net10.0;PublishDir=$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(PublishDir)', 'mcp'))" />
   </Target>
 
+  <Target Name="CopySpeechWorker" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\TANGERINE-VideoEditor.Speech\TANGERINE-VideoEditor.Speech.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);TargetFramework=net10.0-windows">
+      <Output TaskParameter="TargetOutputs" ItemName="SpeechWorkerAssembly" />
+    </MSBuild>
+    <PropertyGroup>
+      <SpeechWorkerDirectory>@(SpeechWorkerAssembly->'%(RootDir)%(Directory)')</SpeechWorkerDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <SpeechWorkerFiles Include="$(SpeechWorkerDirectory)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SpeechWorkerFiles)" DestinationFiles="@(SpeechWorkerFiles->'$(TargetDir)speech\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
