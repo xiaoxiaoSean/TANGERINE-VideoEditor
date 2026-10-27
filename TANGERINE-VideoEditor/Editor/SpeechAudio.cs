@@ -23,8 +23,8 @@ public static class SpeechAudio
         filters.Add("atempo=" + N(tempo));
         if (Math.Abs(rate - 1) < .000000001 && Math.Abs(pitch) < .000000001)
             filters = [$"aresample={sampleRate}"];
-        // Resolve before changing the encoder working directory. Short sibling
-        // names keep the bundled FFmpeg's legacy Windows file APIs below MAX_PATH.
+        // The bundled FFmpeg cannot open an absolute input beyond MAX_PATH.
+        // Stage long inputs and every output in the executable's short cache path.
         input = Path.GetFullPath(input);
         if (!File.Exists(input))
             throw new SpeechFailure("VOICE0007", "音频处理输入文件不存在：" + input);
@@ -39,18 +39,41 @@ public static class SpeechAudio
         output = Path.GetFullPath(output);
         string outputDirectory = Path.GetDirectoryName(output)!;
         Directory.CreateDirectory(outputDirectory);
-        var args = new List<string> { "-nostdin", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-stats_period", "1", "-y", "-ss", N(start), "-i", input };
-        if (duration is double seconds) { args.Add("-t"); args.Add(N(seconds)); }
-        // Commit only complete conversions. A failed encoder must not truncate
-        // an earlier valid sample or leave a partial file at the final path.
-        string pendingName = Guid.NewGuid().ToString("N") + ".wav";
-        string pendingOutput = Path.Combine(outputDirectory, pendingName);
-        args.AddRange(["-vn", "-af", string.Join(',', filters), "-ac", "1", "-ar", sampleRate.ToString(CultureInfo.InvariantCulture), "-c:a", "pcm_s16le", pendingName]);
-        var info = new ProcessStartInfo(TimelineExporter.ResolveEncoderPath())
-        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true,
-            WorkingDirectory = outputDirectory };
-        foreach (string arg in args) info.ArgumentList.Add(arg);
-        using var process = Process.Start(info) ?? throw new SpeechFailure("VOICE0007", "无法启动音频处理程序。");
+        string stageDirectory = Path.Combine(AppStorage.TempRoot, "speech-audio-" + Guid.NewGuid().ToString("N"));
+        string pendingOutput = Path.Combine(stageDirectory, "output.wav");
+        if (pendingOutput.Length >= 240)
+            throw new SpeechFailure("VOICE0007", "程序缓存路径过长，无法使用随附音频处理程序。请将程序移到较短的目录。");
+        Directory.CreateDirectory(stageDirectory);
+        string encoderInput = input;
+        Process startedProcess;
+        try
+        {
+            if (input.Length >= 240 || input.Any(c => c > 127))
+            {
+                string extension = Path.GetExtension(input);
+                if (extension.Length is < 2 or > 10 || !extension[1..].All(char.IsAsciiLetterOrDigit))
+                    extension = ".bin";
+                string stagedInput = Path.Combine(stageDirectory, "input" + extension);
+                await using (var source = File.OpenRead(input))
+                await using (var destination = File.Create(stagedInput))
+                    await source.CopyToAsync(destination, token).ConfigureAwait(false);
+                encoderInput = Path.GetFileName(stagedInput);
+            }
+            var args = new List<string> { "-nostdin", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-stats_period", "1", "-y", "-ss", N(start), "-i", encoderInput };
+            if (duration is double seconds) { args.Add("-t"); args.Add(N(seconds)); }
+            args.AddRange(["-vn", "-af", string.Join(',', filters), "-ac", "1", "-ar", sampleRate.ToString(CultureInfo.InvariantCulture), "-c:a", "pcm_s16le", "output.wav"]);
+            var info = new ProcessStartInfo(TimelineExporter.ResolveEncoderPath())
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true,
+                WorkingDirectory = stageDirectory };
+            foreach (string arg in args) info.ArgumentList.Add(arg);
+            startedProcess = Process.Start(info) ?? throw new SpeechFailure("VOICE0007", "无法启动音频处理程序。");
+        }
+        catch
+        {
+            SpeechAssets.DeleteDirectory(stageDirectory);
+            throw;
+        }
+        using var process = startedProcess;
         long started = Stopwatch.GetTimestamp();
         long lastOutputTime = 0;
         SpeechWorkerClient.WriteDiagnostic(FormattableString.Invariant(
@@ -142,9 +165,8 @@ public static class SpeechAudio
                 await Task.Factory.StartNew(() => process.WaitForExit(3000), CancellationToken.None,
                     TaskCreationOptions.LongRunning, TaskScheduler.Default).ConfigureAwait(false);
             }
-            try { File.Delete(pendingOutput); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            { Trace.WriteLine("VOICE0007: " + e.Message); }
+            if (process.HasExited) SpeechAssets.DeleteDirectory(stageDirectory);
+            else SpeechWorkerClient.WriteDiagnostic("audio-convert-retirement-unconfirmed pid=" + process.Id);
         }
     }
 
