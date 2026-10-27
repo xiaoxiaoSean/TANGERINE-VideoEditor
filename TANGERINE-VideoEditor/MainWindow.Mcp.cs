@@ -37,6 +37,9 @@ public partial class MainWindow
         public string Name { get; } = name;
         public string Status { get; set; } = "running";
         public double Progress { get; set; }
+        public string? Detail { get; set; }
+        public int? CompletedUnits { get; set; }
+        public int? TotalUnits { get; set; }
         public object? Result { get; set; }
         public string? Error { get; set; }
         public string? StageCode { get; set; }
@@ -85,7 +88,7 @@ public partial class MainWindow
             $"{_builtinMusicArtworkRequest}|{_builtinMusicArtworkLoading}|{McpMusicArtworkVisible}|{_builtinMusicTrack?.ThumbnailPath}|" +
             $"{TimelineZoomSlider.Value}|{UpperWorkspaceRow.Height}|{LibraryWorkspaceColumn.Width}|{_autoSaveEnabled}|" +
             $"{string.Join(',', _customShortcutBindings.OrderBy(pair => pair.Key).Select(pair => pair.Key + ':' + (pair.Value is System.Windows.Input.KeyBinding key ? key.Key.ToString() + key.Modifiers : pair.Value.ToString())))}|" +
-             $"{PreviewZoomSlider.Value}|{MediaViewBox.SelectedIndex}|{_project.Sequence.MagneticTimeline}|{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
+             $"{PreviewZoomSlider.Value}|{MediaViewBox.SelectedIndex}|{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
             string.Join('|', _mcpJobs.Values.OrderBy(job => job.Id).Select(job => $"{job.Id}:{job.Status}:{job.Progress:R}"));
         if (fingerprint != _mcpUiFingerprint) { _mcpUiRevision++; _mcpUiFingerprint = fingerprint; }
         Volatile.Write(ref _mcpInfo, _mcpInfo with
@@ -184,13 +187,13 @@ public partial class MainWindow
         };
     }
 
-    private string McpPreviewMode => BuiltinMusicOwnsMonitor ? "music" :
+    private string McpPreviewMode => BuiltinMusicOwnsMonitor ? (_builtinMusicTrack?.Id.StartsWith("speech-", StringComparison.Ordinal) == true ? "speech" : "music") :
         _catalogPreviewActive || _catalogPreviewPending ? "catalog" : "timeline";
 
     private bool McpMusicArtworkVisible => BuiltinMusicOwnsMonitor &&
         _builtinMusicArtwork.Visibility == Visibility.Visible && _builtinMusicArtwork.Source is not null;
 
-    private object McpMutate(string label, Action edit, bool recordHistory = true)
+    private object McpMutate(string label, Action edit, bool recordHistory = true, bool applyTrackSnapping = true)
     {
         McpEnsureIdle();
         ProjectDocument originalProject = _project;
@@ -210,7 +213,7 @@ public partial class MainWindow
             McpValidate(_project);
             if (!ReferenceEquals(originalProject, _project) || !ReferenceEquals(originalSequence, _project.Sequence))
                 ResetMcpDocumentContext();
-            MarkProjectDirty();
+            MarkProjectDirty(applySnapping: applyTrackSnapping);
             RefreshMcpUi(label, _selectedClip?.Id);
             // History is changed only after both model validation and the
             // visual refresh succeed. Failed edits leave both stacks intact.
@@ -280,6 +283,7 @@ public partial class MainWindow
 
     private void ResetMcpDocumentContext()
     {
+        ResetSpeechContext();
         StopCatalogPreview();
         _sourceMonitorRequest++;
         _sourceMonitor?.Close();
@@ -428,7 +432,8 @@ public partial class MainWindow
 
     private static object McpJobState(McpJob job) => new
     {
-        jobId = job.Id, job.Name, job.Status, job.Progress, job.Result, job.Error, job.StageCode, job.CreatedUtc, job.CompletedUtc
+        jobId = job.Id, job.Name, job.Status, job.Progress, job.Detail, job.CompletedUnits, job.TotalUnits,
+        job.Result, job.Error, job.StageCode, job.CreatedUtc, job.CompletedUtc
     };
     private sealed class McpProgress(Action<double> report) : IProgress<double>
     {
@@ -451,7 +456,12 @@ public partial class MainWindow
         ?? throw new StageException("MCPRT0009", "找不到轨道：" + id);
     private TimelineTrack McpOwner(TimelineClip clip) => _project.Tracks.First(track => track.Clips.Contains(clip));
     private static void McpWritable(TimelineTrack track)
-    { if (track.IsLocked) throw new StageException("MCPRT0010", "轨道已锁定，请先通过 track_update 解锁。"); }
+    {
+        if (track.Speech is not null) throw new StageException("VOICE0004", "专用语音轨道请使用 speech_* 命令编辑。");
+        if (track.Subtitle is not null)
+            throw new StageException("MCPRT0010", "专用字幕轨道只能在字幕轨道标签页中编辑或删除。");
+        if (track.IsLocked) throw new StageException("MCPRT0010", "轨道已锁定，请先通过 track_update 解锁。");
+    }
 
     private void ShowMcpConnection()
     {
