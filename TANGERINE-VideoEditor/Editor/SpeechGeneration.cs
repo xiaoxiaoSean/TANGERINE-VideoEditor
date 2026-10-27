@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -41,17 +43,24 @@ public static class SpeechGeneration
             int total = data.Sentences.Count, completed = 0;
             int pending = data.Sentences.Count(s => forceSentenceId == s.Id || s.Fingerprint != Fingerprint(s, data) ||
                 s.RawAssetId is not { } id || !existing.TryGetValue(id, out MediaAsset? raw) || !File.Exists(raw.EffectiveExportPath));
-            int requestedWorkers = data.Device == "cpu" ? SpeechPerformance.SentenceWorkers(data.ModelSize) : 1;
+            int requestedWorkers = InferenceWorkers(data.ModelSize, data.Device);
             int concurrentSentences = Math.Max(1, Math.Min(pending, requestedWorkers));
             int cpuThreads = SpeechPerformance.ThreadsPerWorker(concurrentSentences);
             var paths = new string[total];
             var rawAssets = new MediaAsset?[total];
             var backends = new string?[total];
-            await Parallel.ForEachAsync(Enumerable.Range(0, total), new ParallelOptions
+            using var laneCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var queue = new ConcurrentQueue<int>(Enumerable.Range(0, total));
+            async Task RunLaneAsync(string device)
             {
-                MaxDegreeOfParallelism = concurrentSentences,
-                CancellationToken = token
-            }, async (i, cancellation) =>
+                try
+                {
+                    while (queue.TryDequeue(out int i))
+                        await GenerateSentenceAsync(i, device, laneCancellation.Token).ConfigureAwait(false);
+                }
+                catch { laneCancellation.Cancel(); throw; }
+            }
+            async Task GenerateSentenceAsync(int i, string device, CancellationToken cancellation)
             {
                 cancellation.ThrowIfCancellationRequested(); SpeechSentence s = data.Sentences[i];
                 string fingerprint = Fingerprint(s, data);
@@ -75,7 +84,7 @@ public static class SpeechGeneration
                         string adjusted = Path.Combine(work, $"{s.Id}-initial-{partIndex++}.wav");
                         var sentenceProgress = new InlineProgress(p => progress?.Report(new(
                             $"第 {i + 1}/{total} 句 · {p.Message}", .8 * Volatile.Read(ref completed) / total, p.Backend)));
-                        var message = await worker.SendAsync(new SpeechRequest { ModelPath = model, Device = data.Device, CpuThreads = cpuThreads,
+                        var message = await worker.SendAsync(new SpeechRequest { ModelPath = model, Device = device, CpuThreads = cpuThreads,
                             Text = part.Text, Speaker = voice.Id, ReferencePath = voice.ReferencePath,
                             ReferenceText = voice.ReferenceText, Language = part.Language == "auto" ? s.Language ?? data.Defaults.Language : part.Language,
                             OutputPath = raw }, sentenceProgress, cancellation).ConfigureAwait(false);
@@ -98,7 +107,12 @@ public static class SpeechGeneration
                 }
                 progress?.Report(new($"已完成 {Interlocked.Increment(ref completed)}/{total} 句原始语音",
                     .8 * Volatile.Read(ref completed) / total, backends[i]));
-            }).ConfigureAwait(false);
+            }
+            // Auto can run one DirectML session alongside CPU sessions. An
+            // explicit adapter never silently sends sentences to the CPU.
+            Task[] lanes = Enumerable.Range(0, concurrentSentences)
+                .Select(index => RunLaneAsync(data.Device == "auto" && index > 0 ? "cpu" : data.Device)).ToArray();
+            await Task.WhenAll(lanes).ConfigureAwait(false);
             for (int i = 0; i < total; i++)
             {
                 rawPaths.Add(data.Sentences[i].Id, paths[i]);
@@ -172,6 +186,30 @@ public static class SpeechGeneration
     private sealed class InlineProgress(Action<SpeechProgress> report) : IProgress<SpeechProgress>
     {
         public void Report(SpeechProgress value) => report(value);
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryStatus
+    {
+        public uint Length, Load;
+        public ulong TotalPhysical, AvailablePhysical, TotalPageFile, AvailablePageFile;
+        public ulong TotalVirtual, AvailableVirtual, AvailableExtendedVirtual;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+
+    private static int InferenceWorkers(string modelSize, string device)
+    {
+        if (device != "auto" && device != "cpu") return 1;
+        var status = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
+        if (!GlobalMemoryStatusEx(ref status)) return 1;
+        const ulong gib = 1024UL * 1024 * 1024;
+        // A 0.6B hybrid worker reached 8.5 GiB private bytes on this model.
+        // Budget whole replicas plus room for the editor and Windows; unused
+        // memory is preferable to paging two autoregressive sessions.
+        ulong replica = modelSize == "1.7b" ? 20 * gib : 9 * gib;
+        ulong available = status.AvailablePhysical > 3 * gib ? status.AvailablePhysical - 3 * gib : 0;
+        return (int)Math.Clamp(available / replica, 1UL, (ulong)SpeechPerformance.SentenceWorkers(modelSize));
     }
     public static List<SpeechPart> MergeParts(IEnumerable<SpeechPart> parts)
     {
