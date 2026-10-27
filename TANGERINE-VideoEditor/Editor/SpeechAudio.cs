@@ -172,11 +172,17 @@ public static class SpeechAudio
 
     private static async Task ReadProgressAsync(StreamReader output, CancellationToken token, Action<long> report)
     {
+        long lastReported = -1;
         while (await output.ReadLineAsync(token).ConfigureAwait(false) is { } line)
         {
-            if (!line.StartsWith("out_time_us=", StringComparison.Ordinal) ||
-                !long.TryParse(line.AsSpan("out_time_us=".Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ||
-                value < 0) continue;
+            ReadOnlySpan<char> timestamp = line.StartsWith("out_time_us=", StringComparison.Ordinal)
+                ? line.AsSpan("out_time_us=".Length)
+                : line.StartsWith("out_time_ms=", StringComparison.Ordinal)
+                    ? line.AsSpan("out_time_ms=".Length) : default;
+            // Older FFmpeg calls this field out_time_ms, but its value is microseconds.
+            if (timestamp.IsEmpty || !long.TryParse(timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ||
+                value <= lastReported) continue;
+            lastReported = value;
             report(value);
         }
     }
