@@ -8982,7 +8982,7 @@ dotnet run --project tests/ExportCoverageCheck --configuration Debug -- --featur
 
 | 命令 | 参数与行为 |
 | --- | --- |
-| `speech_devices` | 查询 `auto`、`cpu` 和真实 DXGI `EnumAdapters1` 枚举的 `dml:索引`；不要猜测显卡索引。列表优先排列 Intel、NVIDIA、AMD 物理设备，保留原始索引；自动模式取第一张显卡。返回专用与共享显存容量，二者参与完整 GPU 图的容量估算；不足时使用 GPU 编码预测器 + CPU talker/声码器。完整图失败或超时可先重试混合 GPU；仅自动模式可继续回退 CPU，指定显卡保持选择并返回失败。枚举可见不代表实际推理已验证。 |
+| `speech_devices` | 查询 `auto`、`cpu` 和真实 DXGI `EnumAdapters1` 枚举的 `dml:索引`；不要猜测显卡索引。列表优先排列 Intel、NVIDIA、AMD 物理设备，保留原始索引；自动模式取第一张显卡。返回专用与共享显存容量，但仅按专用显存估算完整 GPU 图预算；不足时使用 GPU 编码预测器 + CPU talker/声码器。完整图失败或超时可先重试混合 GPU；仅自动模式可继续回退 CPU，指定显卡保持选择并返回失败。枚举可见不代表实际推理已验证。 |
 | `speech_models` | 查询模型 ID、安装状态、路径以及根目录。 |
 | `speech_model_download` | `modelId` 为 `custom-0.6b`、`base-0.6b`、`custom-1.7b`；显式下载并校验固定版本，返回任务。生成时不会自动下载。 |
 | `speech_model_import` | `{modelId,path}`；将完整兼容 ONNX 模型复制到 voice_models，不覆盖正在使用的旧目录。 |
@@ -9015,7 +9015,7 @@ dotnet run --project tests/ExportCoverageCheck --configuration Debug -- --featur
 }
 ```
 
-长操作返回现有 jobs 任务；使用 `jobs_status({jobId})` 等待 completed，检查 failed/cancelled 及 stageCode。`jobs_cancel({jobId})` 取消。界面显示准备、每句推理和收尾进度；排队不代表卡死，不要因此重复提交相同请求。任务执行时不因一分钟空闲而交还操作权；不要在工作尚未结束时解锁。取消、生成失败或位置冲突均保留原有效轨道，不留下半条结果。按逻辑处理器数安排并发：worker 上限为 `clamp(ProcessorCount / 4, 1, 4)`，0.6B 最多使用该数量，1.7B 最多两句；不再设置 18 GiB 空闲内存门槛。每进程共用 ORT 线程池并分配 CPU 线程预算，单句重生成可获得完整预算；不同显卡的独立会话可并行，同一张 DirectML 显卡仍串行。设备查询独立；成功后的空闲会话两分钟回收。
+长操作返回现有 jobs 任务；使用 `jobs_status({jobId})` 等待 completed，检查 failed/cancelled 及 stageCode。`jobs_cancel({jobId})` 取消。语音任务实时返回 `detail`、`completedUnits`、`totalUnits`；推理总帧数不可预知，`progress` 在提交前保持 0，完成后为 1。界面显示实际已完成图调用、帧、句子和收尾进度，不用固定阶段权重假装精确百分比；排队不代表卡死，不要因此重复提交相同请求。任务执行时不因一分钟空闲而交还操作权；不要在工作尚未结束时解锁。取消、生成失败或位置冲突均保留原有效轨道，不留下半条结果。并发上限为 `clamp(ProcessorCount / 4, 1, 4)`，1.7B 最多两句；另以当前可用物理内存为每个 0.6B 副本预算 9 GiB、1.7B 预算 20 GiB，并预留 3 GiB。自动模式有足够内存时一条 GPU lane 可与 CPU lane 并行；显式指定显卡只使用该显卡，同一卡串行。每进程共用 ORT 线程池并分配 CPU 线程预算；成功后的空闲会话两分钟回收。单句内的预测组顺序依赖，不能仅凭增加线程让 CPU/GPU 满载。
 
 协议读取、错误管道排空和执行超时监控使用独立线程。每张图准确报告 CPU/GPU 加载、预填充、预测、解码的开始与完成，重复消息不能掩盖卡死。加载四分钟、预填充三分钟、预测/解码两分钟无进展时结束对应工作进程；音频转换五分钟总期限。完整 GPU 图无进展先重试混合模式；只有 auto 可在混合 GPU 失败后改用 CPU。CPU 阶段故障不归因于 GPU。混合/CPU 偏好按设备和模型保留，后续句子及回收后新进程不重复尝试已失败路径。并行句子最终仍按原句顺序排布，提交前统一检查工程代次及位置约束。
 
