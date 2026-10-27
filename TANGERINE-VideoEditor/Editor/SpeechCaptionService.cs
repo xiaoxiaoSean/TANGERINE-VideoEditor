@@ -46,7 +46,7 @@ public static class SpeechCaptionService
                     });
                 recognized.Add((clip, asset, cachedResult));
                 progress?.Report(new($"字幕已完成 {i + 1}/{speech.Clips.Count} 句", -1)
-                    { CompletedUnits = i + 1, TotalUnits = speech.Clips.Count });
+                    { Phase = "captions", CompletedUnits = i + 1, TotalUnits = speech.Clips.Count });
                 continue;
             }
             WhisperXResult result;
@@ -55,7 +55,7 @@ public static class SpeechCaptionService
                 int index = i;
                 var report = new Progress<WhisperXProgress>(p => progress?.Report(new SpeechProgress(
                     $"字幕已完成 {index}/{speech.Clips.Count} 句 · 第 {index + 1} 句逐字对齐 {p.Fraction:P0} · {p.Message}",
-                    -1) { CompletedUnits = index, TotalUnits = speech.Clips.Count }));
+                    -1) { Phase = "captions", CompletedUnits = index, TotalUnits = speech.Clips.Count }));
                 result = await WhisperXService.AlignTextAsync(asset.SourcePath, sentence.Text, language,
                     settings.AlignmentModel, settings.Device, settings.PythonPath, report, token);
                 if (result.Segments.Count != 1 || result.Segments[0].Text != sentence.Text ||
@@ -66,7 +66,7 @@ public static class SpeechCaptionService
             else result = new WhisperXResult { Language = language, DurationSeconds = clip.DurationSeconds,
                 Segments = [new WhisperXSegment { Text = sentence.Text, StartSeconds = 0, EndSeconds = clip.DurationSeconds }] };
             progress?.Report(new($"字幕已完成 {i + 1}/{speech.Clips.Count} 句", -1)
-                { CompletedUnits = i + 1, TotalUnits = speech.Clips.Count });
+                { Phase = "captions", CompletedUnits = i + 1, TotalUnits = speech.Clips.Count });
             recognized.Add((clip, asset, result));
         }
         TimelineTrack subtitles = SubtitleTrackService.CreateSpeechTrack(speech, recognized, options, previous);

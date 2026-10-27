@@ -149,6 +149,7 @@ public partial class MainWindow
                 replacementCaptions = await SpeechCaptionService.GenerateAsync(preparedSpeech, assets, captionSettings,
                     captionTrack, track?.Speech?.Captions, progress, token);
             }
+            progress.Report(new("正在检查工程空间与提交条件", -1, generated.Data.Backend) { Phase = "commit" });
             await ProjectFileService.EnsureImportCapacityAsync(owner.Media.Select(a => a.SourcePath).Concat(generated.Assets.Select(a => a.SourcePath)), token);
             token.ThrowIfCancellationRequested();
             if (!ReferenceEquals(owner, _project) || generation != _projectGeneration || sequence != _project.Sequence.Id || controlOwner != _mcpControlOwnerSessionId ||
@@ -178,7 +179,7 @@ public partial class MainWindow
             StatusText.Text = $"已生成 {destination.Clips.Count} 句语音" +
                 (replacementCaptions is null ? "" : $"、{replacementCaptions.Subtitle!.Cues.Count} 句字幕") +
                 $" · {generated.Data.Backend}";
-            progress.Report(new("语音生成已提交", 1, generated.Data.Backend));
+            progress.Report(new("语音生成已提交", 1, generated.Data.Backend) { Phase = "completed" });
             UpdateMcpInfo(); return destination;
         }
         finally

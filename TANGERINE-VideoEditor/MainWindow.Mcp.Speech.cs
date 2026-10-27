@@ -42,6 +42,7 @@ public partial class MainWindow
                 var report = new Progress<SpeechProgress>(value =>
                 {
                     if (finished || linked.IsCancellationRequested) return;
+                    job.Phase = value.Phase;
                     job.Detail = value.Message;
                     job.CompletedUnits = value.CompletedUnits;
                     job.TotalUnits = value.TotalUnits;

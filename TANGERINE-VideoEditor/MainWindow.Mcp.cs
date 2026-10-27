@@ -37,6 +37,7 @@ public partial class MainWindow
         public string Name { get; } = name;
         public string Status { get; set; } = "running";
         public double Progress { get; set; }
+        public string? Phase { get; set; }
         public string? Detail { get; set; }
         public int? CompletedUnits { get; set; }
         public int? TotalUnits { get; set; }
@@ -90,7 +91,7 @@ public partial class MainWindow
             $"{string.Join(',', _customShortcutBindings.OrderBy(pair => pair.Key).Select(pair => pair.Key + ':' + (pair.Value is System.Windows.Input.KeyBinding key ? key.Key.ToString() + key.Modifiers : pair.Value.ToString())))}|" +
              $"{PreviewZoomSlider.Value}|{MediaViewBox.SelectedIndex}|{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
             string.Join('|', _mcpJobs.Values.OrderBy(job => job.Id).Select(job =>
-                $"{job.Id}:{job.Status}:{job.Progress:R}:{job.CompletedUnits}:{job.TotalUnits}:{job.Detail}"));
+                $"{job.Id}:{job.Status}:{job.Progress:R}:{job.Phase}:{job.CompletedUnits}:{job.TotalUnits}:{job.Detail}"));
         if (fingerprint != _mcpUiFingerprint) { _mcpUiRevision++; _mcpUiFingerprint = fingerprint; }
         Volatile.Write(ref _mcpInfo, _mcpInfo with
         {
@@ -433,7 +434,7 @@ public partial class MainWindow
 
     private static object McpJobState(McpJob job) => new
     {
-        jobId = job.Id, job.Name, job.Status, job.Progress, job.Detail, job.CompletedUnits, job.TotalUnits,
+        jobId = job.Id, job.Name, job.Status, job.Progress, job.Phase, job.Detail, job.CompletedUnits, job.TotalUnits,
         job.Result, job.Error, job.StageCode, job.CreatedUtc, job.CompletedUtc
     };
     private sealed class McpProgress(Action<double> report) : IProgress<double>

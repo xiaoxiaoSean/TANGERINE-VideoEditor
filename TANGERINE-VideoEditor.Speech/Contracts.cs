@@ -124,6 +124,7 @@ public sealed class SpeechEvent
 }
 public sealed record SpeechProgress(string Message, double Fraction, string? Backend = null)
 {
+    public string? Phase { get; init; }
     public int? CompletedUnits { get; init; }
     public int? TotalUnits { get; init; }
 }

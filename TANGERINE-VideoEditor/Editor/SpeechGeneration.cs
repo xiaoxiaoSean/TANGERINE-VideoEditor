@@ -56,7 +56,7 @@ public static class SpeechGeneration
                     string summary = $"原始语音已完成 {completed}/{total} 句";
                     progress?.Report(new(detail.Length > 0 ? summary + "\n" + detail : summary, -1,
                         devices.Length > 0 ? string.Join(" / ", devices) : null)
-                        { CompletedUnits = completed, TotalUnits = total });
+                        { Phase = "inference", CompletedUnits = completed, TotalUnits = total });
                 }
             }
             int pending = data.Sentences.Count(s => forceSentenceId == s.Id || s.Fingerprint != Fingerprint(s, data) ||
@@ -142,7 +142,7 @@ public static class SpeechGeneration
             // The worker pool already retires sessions after two idle minutes.
             // Keep a successful session warm for sentence edits and regeneration.
             progress?.Report(new("原始语音已完成，正在并行处理音频", -1, data.Backend)
-                { CompletedUnits = 0, TotalUnits = total });
+                { Phase = "audio", CompletedUnits = 0, TotalUnits = total });
             var processedAssets = new MediaAsset?[total];
             int processed = 0;
             await Parallel.ForEachAsync(Enumerable.Range(0, total), new ParallelOptions
@@ -166,7 +166,7 @@ public static class SpeechGeneration
                     await SpeechAudio.ConvertAsync(rawPaths[sentence.Id], audio, sentence.EffectiveRate, pitch, 0, null,
                         48000, cancellation, fraction => progress?.Report(new(
                             $"音频已处理 {Volatile.Read(ref processed)}/{total} 句 · 第 {i + 1} 句 {fraction:P0}",
-                            -1, data.Backend) { CompletedUnits = Volatile.Read(ref processed), TotalUnits = total }))
+                            -1, data.Backend) { Phase = "audio", CompletedUnits = Volatile.Read(ref processed), TotalUnits = total }))
                         .ConfigureAwait(false);
                     if (sentence.Anchor == SpeechAnchor.Window) SpeechAudio.FitWindow(audio, sentence.End - sentence.Start);
                     processedAssets[i] = Asset(audio, sentence.Text, SpeechAudio.Duration(audio), "sentence");
@@ -176,7 +176,7 @@ public static class SpeechGeneration
                 sentence.AudioFingerprint = acoustic;
                 int done = Interlocked.Increment(ref processed);
                 progress?.Report(new($"音频已处理 {done}/{total} 句", -1, data.Backend)
-                    { CompletedUnits = done, TotalUnits = total });
+                    { Phase = "audio", CompletedUnits = done, TotalUnits = total });
             }).ConfigureAwait(false);
             assets.AddRange(processedAssets.OfType<MediaAsset>());
             double previousEnd = data.Origin;
@@ -194,8 +194,8 @@ public static class SpeechGeneration
             // chunks. Old generations remain under the document's cache lease.
             var retained = assets.Select(a => a.SourcePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (string file in Directory.GetFiles(work)) if (!retained.Contains(file)) File.Delete(file);
-            progress?.Report(new("音频已处理完成，正在确认位置与提交", -1, data.Backend)
-                { CompletedUnits = total, TotalUnits = total });
+            progress?.Report(new("音频已处理完成，正在校验排布", -1, data.Backend)
+                { Phase = "arrangement", CompletedUnits = total, TotalUnits = total });
             return result;
         }
         catch
