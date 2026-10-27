@@ -9015,7 +9015,7 @@ dotnet run --project tests/ExportCoverageCheck --configuration Debug -- --featur
 }
 ```
 
-长操作返回现有 jobs 任务；使用 `jobs_status({jobId})` 等待 completed，检查 failed/cancelled 及 stageCode。`jobs_cancel({jobId})` 取消。语音任务实时返回 `detail`、`completedUnits`、`totalUnits`；推理总帧数不可预知，`progress` 在提交前保持 0，完成后为 1。界面汇总各 lane 正在处理的句子、实际已完成图调用和帧，以及收尾进度，不用固定阶段权重假装精确百分比；排队不代表卡死，不要因此重复提交相同请求。任务执行时不因一分钟空闲而交还操作权；不要在工作尚未结束时解锁。取消、生成失败或位置冲突均保留原有效轨道，不留下半条结果。并发上限为 `clamp(ProcessorCount / 4, 1, 4)`，自动模式的 0.6B 最多两条 lane，1.7B 最多两句；另以当前可用物理内存为每个 0.6B 副本预算 8 GiB、1.7B 预算 20 GiB，并预留 0.5 GiB。自动模式有足够内存时一条 GPU lane 可与 CPU lane 并行；显式指定显卡只使用该显卡，同一卡串行。每进程共用 ORT 线程池并分配 CPU 线程预算；成功后的空闲会话两分钟回收。允许少量换页但大量换页仍可能拖慢处理；单句内的预测组顺序依赖，不能仅凭增加线程让 CPU/GPU 满载。
+长操作返回现有 jobs 任务；使用 `jobs_status({jobId})` 等待 completed，检查 failed/cancelled 及 stageCode。`jobs_cancel({jobId})` 取消。语音任务实时返回 `phase`（`inference`/`audio`/`arrangement`/`captions`/`commit`/`completed`）、`detail`、`completedUnits`、`totalUnits`；句子计数只属于当前阶段，切换阶段会从 0 重新计数。推理总帧数不可预知，`progress` 在提交前保持 0，完成后为 1。界面汇总各 lane 正在处理的句子、实际已完成图调用和帧，以及收尾进度，不用固定阶段权重假装精确百分比；排队不代表卡死，不要因此重复提交相同请求。任务执行时不因一分钟空闲而交还操作权；不要在工作尚未结束时解锁。取消、生成失败或位置冲突均保留原有效轨道，不留下半条结果。并发上限为 `clamp(ProcessorCount / 4, 1, 4)`，自动模式的 0.6B 最多两条 lane，1.7B 最多两句；另以当前可用物理内存为每个 0.6B 副本预算 8 GiB、1.7B 预算 20 GiB，并预留 0.5 GiB；同模型已驻留 worker 不重复计作新副本。自动模式有足够内存时一条 GPU lane 可与 CPU lane 并行；显式指定显卡只使用该显卡，同一卡串行。CPU 池优先匹配已加载的同模型空闲槽；自动模式固定 ORT 线程预算，使单句修改可复用热会话。成功后的空闲会话两分钟回收。允许少量换页但大量换页仍可能拖慢处理；单句内的预测组顺序依赖，不能仅凭增加线程让 CPU/GPU 满载。
 
 协议读取、错误管道排空和执行超时监控使用独立线程。每张图准确报告 CPU/GPU 加载、预填充、预测、解码的开始与完成，重复消息不能掩盖卡死。加载四分钟、预填充三分钟、预测/解码两分钟无进展时结束对应工作进程；音频转换五分钟总期限。完整 GPU 图无进展先重试混合模式；只有 auto 可在混合 GPU 失败后改用 CPU。CPU 阶段故障不归因于 GPU。混合/CPU 偏好按设备和模型保留，后续句子及回收后新进程不重复尝试已失败路径。并行句子最终仍按原句顺序排布，提交前统一检查工程代次及位置约束。
 
