@@ -61,14 +61,15 @@ public static class SpeechGeneration
             }
             bool[] needsInference = data.Sentences.Select(s => forceSentenceId == s.Id || s.Fingerprint != Fingerprint(s, data) ||
                 s.RawAssetId is not { } id || !existing.TryGetValue(id, out MediaAsset? raw) || !File.Exists(raw.EffectiveExportPath)).ToArray();
-            int pending = needsInference.Count(required => required);
+            int[] pendingIndices = Enumerable.Range(0, total).Where(index => needsInference[index]).ToArray();
+            int pending = pendingIndices.Length;
             string[] models = data.Sentences.Where((_, index) => needsInference[index]).Select(s =>
             {
                 if (!voices.TryGetValue(s.VoiceId ?? data.Defaults.VoiceId, out SpeechVoice? voice))
                     throw new SpeechFailure("VOICE0006", "音色不存在，请重新选择音色。");
                 return SpeechAssets.ModelPath(voice.Builtin ? "custom-" + data.ModelSize : "base-0.6b");
             }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            var residency = data.Device == "auto" && models.Length == 1
+            var residency = pending > 1 && data.Device == "auto" && models.Length == 1
                 ? await worker.AutomaticLaneResidencyAsync(models[0], SpeechPerformance.ThreadsPerWorker(2), token)
                     .ConfigureAwait(false)
                 : (GpuAvailable: true, GpuWarm: false, CpuWarm: 0);
@@ -80,8 +81,13 @@ public static class SpeechGeneration
             var paths = new string[total];
             var rawAssets = new MediaAsset?[total];
             var backends = new string?[total];
+            for (int i = 0; i < total; i++)
+                if (!needsInference[i]) paths[i] = existing[data.Sentences[i].RawAssetId!].EffectiveExportPath;
+            completed = total - pending;
+            progress?.Report(new($"原始语音已完成 {completed}/{total} 句", -1, data.Backend)
+                { Phase = "inference", CompletedUnits = completed, TotalUnits = total });
             using var laneCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-            var queue = new ConcurrentQueue<int>(Enumerable.Range(0, total));
+            var queue = new ConcurrentQueue<int>(pendingIndices);
             async Task RunLaneAsync(string device)
             {
                 try
