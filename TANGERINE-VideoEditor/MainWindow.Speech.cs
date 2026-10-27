@@ -84,9 +84,10 @@ public partial class MainWindow
         _speechUiCancellation = cancellation;
         var message = new TextBlock { Text = "正在准备…", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, IsIndeterminate = true, Margin = new Thickness(0, 0, 0, 10) };
+        var counter = new TextBlock { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 10) };
         var cancel = new Button { Content = "取消", HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(16, 6, 16, 6) };
         cancel.Click += (_, _) => cancellation.Cancel();
-        var layout = new StackPanel { Margin = new Thickness(18) }; layout.Children.Add(message); layout.Children.Add(bar); layout.Children.Add(cancel);
+        var layout = new StackPanel { Margin = new Thickness(18) }; layout.Children.Add(message); layout.Children.Add(bar); layout.Children.Add(counter); layout.Children.Add(cancel);
         var window = new Window { Owner = this, Title = title, Width = Math.Max(1, ActualWidth * .4), SizeToContent = SizeToContent.Height,
             ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Brush("#191B20"), Foreground = Brushes.White, Content = layout };
@@ -95,7 +96,12 @@ public partial class MainWindow
         {
             if (cancellation.IsCancellationRequested || !ReferenceEquals(_speechUiCancellation, cancellation)) return;
             message.Text = p.Message + (p.Backend is null ? "" : "\n" + p.Backend);
-            bar.IsIndeterminate = p.Fraction < 0; if (p.Fraction >= 0) bar.Value = p.Fraction;
+            bool counted = p.Fraction < 0 && p.CompletedUnits is int && p.TotalUnits is > 0;
+            counter.Visibility = counted ? Visibility.Visible : Visibility.Collapsed;
+            if (counted) counter.Text = $"当前阶段已完成 {p.CompletedUnits}/{p.TotalUnits} 句";
+            bar.IsIndeterminate = p.Fraction < 0 && !counted;
+            if (p.Fraction >= 0) bar.Value = Math.Clamp(p.Fraction, 0, 1);
+            else if (counted) bar.Value = Math.Clamp((double)p.CompletedUnits!.Value / p.TotalUnits!.Value, 0, 1);
         });
         window.Show();
         try { await work(progress, cancellation.Token); }

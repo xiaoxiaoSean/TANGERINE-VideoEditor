@@ -31,9 +31,10 @@ public partial class MainWindow
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(token);
                 var message = new TextBlock { Text = "正在准备…", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
                 var meter = new ProgressBar { Minimum = 0, Maximum = 1, IsIndeterminate = true, Margin = new Thickness(0, 0, 0, 10) };
+                var counter = new TextBlock { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 10) };
                 var cancel = new Button { Content = "取消", HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(16, 6, 16, 6) };
                 cancel.Click += (_, _) => linked.Cancel();
-                var panel = new StackPanel { Margin = new Thickness(18) }; panel.Children.Add(message); panel.Children.Add(meter); panel.Children.Add(cancel);
+                var panel = new StackPanel { Margin = new Thickness(18) }; panel.Children.Add(message); panel.Children.Add(meter); panel.Children.Add(counter); panel.Children.Add(cancel);
                 var window = new Window { Owner = this, Title = title + " · MCP", Content = panel,
                     Width = Math.Max(1, ActualWidth * .4), SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
                     WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Brush("#191B20"), Foreground = System.Windows.Media.Brushes.White };
@@ -47,8 +48,12 @@ public partial class MainWindow
                     job.CompletedUnits = value.CompletedUnits;
                     job.TotalUnits = value.TotalUnits;
                     message.Text = value.Message + (value.Backend is null ? "" : "\n" + value.Backend);
-                    meter.IsIndeterminate = value.Fraction < 0;
-                    if (value.Fraction >= 0) { meter.Value = value.Fraction; progress.Report(value.Fraction); }
+                    bool counted = value.Fraction < 0 && value.CompletedUnits is int && value.TotalUnits is > 0;
+                    counter.Visibility = counted ? Visibility.Visible : Visibility.Collapsed;
+                    if (counted) counter.Text = $"当前阶段已完成 {value.CompletedUnits}/{value.TotalUnits} 句";
+                    meter.IsIndeterminate = value.Fraction < 0 && !counted;
+                    if (value.Fraction >= 0) { meter.Value = Math.Clamp(value.Fraction, 0, 1); progress.Report(value.Fraction); }
+                    else if (counted) meter.Value = Math.Clamp((double)value.CompletedUnits!.Value / value.TotalUnits!.Value, 0, 1);
                 });
                 window.Show();
                 try
