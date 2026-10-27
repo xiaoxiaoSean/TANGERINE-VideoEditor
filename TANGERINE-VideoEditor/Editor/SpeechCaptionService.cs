@@ -6,6 +6,11 @@ namespace TANGERINE_VideoEditor.Editor;
 
 public static class SpeechCaptionService
 {
+    private sealed class InlineWhisperProgress(Action<WhisperXProgress> report) : IProgress<WhisperXProgress>
+    {
+        public void Report(WhisperXProgress value) => report(value);
+    }
+
     public static async Task<TimelineTrack> GenerateAsync(TimelineTrack speech,
         IReadOnlyDictionary<string, MediaAsset> assets, SpeechCaptionSettings settings,
         TimelineTrack? previous, SpeechCaptionSettings? previousSettings,
@@ -53,7 +58,7 @@ public static class SpeechCaptionService
             if (settings.WordByWord)
             {
                 int index = i;
-                var report = new Progress<WhisperXProgress>(p => progress?.Report(new SpeechProgress(
+                var report = new InlineWhisperProgress(p => progress?.Report(new SpeechProgress(
                     $"字幕已完成 {index}/{speech.Clips.Count} 句 · 第 {index + 1} 句逐字对齐 {p.Fraction:P0} · {p.Message}",
                     -1) { Phase = "captions", CompletedUnits = index, TotalUnits = speech.Clips.Count }));
                 result = await WhisperXService.AlignTextAsync(asset.SourcePath, sentence.Text, language,

@@ -33,6 +33,10 @@ public partial class MainWindow
     private GeneratedSpeech? _speechAuditionFiles;
     private sealed record SpeechDragState(TimelineTrack Track, string SentenceId, Point Origin, SpeechTrackData Before)
     { public SpeechTrackData? Proposed { get; set; } public bool Moved { get; set; } }
+    private sealed class InlineSpeechProgress(Action<SpeechProgress> report) : IProgress<SpeechProgress>
+    {
+        public void Report(SpeechProgress value) => report(value);
+    }
 
     private void InitializeSpeech()
     {
@@ -124,7 +128,7 @@ public partial class MainWindow
         string readerId = Guid.NewGuid().ToString("N"); _speechReaders[readerId] = reader;
         try
         {
-            IProgress<SpeechProgress> voiceProgress = new Progress<SpeechProgress>(value =>
+            IProgress<SpeechProgress> voiceProgress = new InlineSpeechProgress(value =>
                 progress.Report(value with { Fraction = -1 }));
             using GeneratedSpeech generated = await Task.Run(() => SpeechGeneration.GenerateAsync(_speechWorker,
                 settings, existing, cache, voiceProgress, token, forceSentence), token);
