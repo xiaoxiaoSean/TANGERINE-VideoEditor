@@ -202,24 +202,22 @@ internal sealed class QwenSession : IDisposable
         void Progress(string stage, string message) => report(new SpeechEvent { Stage = stage, Message = message, Backend = Backend });
         long graphOperation = 0;
         long lastGraphReport = 0;
-        string? lastGraphStage = null;
         void GraphProgress(string graph, bool gpu, bool completed, int frame, int group)
         {
-            long operation = ++graphOperation;
+            if (completed) ++graphOperation;
             string kind = frame < 0 ? "loading" : graph == "talker_prefill.onnx" ? "prefill"
                 : graph == "talker_decode.onnx" ? "decode" : "predict";
             string stage = kind + (gpu ? "-gpu" : "-cpu");
             long now = Stopwatch.GetTimestamp();
             // A codec frame runs 15 dependent predictor graphs. Reporting before
             // and after every Run flushes thousands of cross-process JSON lines.
-            if (stage == lastGraphStage && frame >= 0 &&
+            if (frame >= 0 && lastGraphReport != 0 &&
                 Stopwatch.GetElapsedTime(lastGraphReport, now) < TimeSpan.FromSeconds(1)) return;
-            lastGraphStage = stage;
             lastGraphReport = now;
             string name = graph == "talker_prefill.onnx" ? "语言模型预填充"
                 : graph == "talker_decode.onnx" ? "语言模型解码" : "编码预测器";
             string position = frame > 0 ? $" · 帧 {frame}" + (group > 0 ? $" · 编码组 {group}/15" : "") : "";
-            Progress(stage, $"{(completed ? "已完成" : "正在运行")} {name}{position} · 步骤 {operation}");
+            Progress(stage, $"{(completed ? "已完成" : "正在运行")} {name}{position} · 已完成 {graphOperation} 次图调用");
         }
         cancellationToken.ThrowIfCancellationRequested();
         string language = SpeechCatalog.Languages.First(l => l.Code == request.Language).EngineName;
