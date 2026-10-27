@@ -107,9 +107,9 @@ public static class SpeechGeneration
             string[] usedBackends = backends.Where(b => !string.IsNullOrWhiteSpace(b)).Select(b => b!).Distinct().ToArray();
             if (usedBackends.Length > 0) data.Backend = string.Join(" / ", usedBackends);
             SpeechText.Arrange(data);
-            progress?.Report(new("语音推理已结束，正在等待模型工作进程退出", .8, data.Backend));
-            await worker.RetireIdleInferenceWorkersAsync().ConfigureAwait(false);
-            progress?.Report(new("模型内存已释放，正在并行处理音频", .8, data.Backend));
+            // The worker pool already retires sessions after two idle minutes.
+            // Keep a successful session warm for sentence edits and regeneration.
+            progress?.Report(new("语音推理已结束，正在并行处理音频", .8, data.Backend));
             var processedAssets = new MediaAsset?[total];
             int processed = 0;
             await Parallel.ForEachAsync(Enumerable.Range(0, total), new ParallelOptions
