@@ -89,7 +89,8 @@ public partial class MainWindow
             $"{TimelineZoomSlider.Value}|{UpperWorkspaceRow.Height}|{LibraryWorkspaceColumn.Width}|{_autoSaveEnabled}|" +
             $"{string.Join(',', _customShortcutBindings.OrderBy(pair => pair.Key).Select(pair => pair.Key + ':' + (pair.Value is System.Windows.Input.KeyBinding key ? key.Key.ToString() + key.Modifiers : pair.Value.ToString())))}|" +
              $"{PreviewZoomSlider.Value}|{MediaViewBox.SelectedIndex}|{_snapEnabled}|{_previewGpuMode}|{_globalMute}|{_soloTrackId}|{StatusText.Text}|" +
-            string.Join('|', _mcpJobs.Values.OrderBy(job => job.Id).Select(job => $"{job.Id}:{job.Status}:{job.Progress:R}"));
+            string.Join('|', _mcpJobs.Values.OrderBy(job => job.Id).Select(job =>
+                $"{job.Id}:{job.Status}:{job.Progress:R}:{job.CompletedUnits}:{job.TotalUnits}:{job.Detail}"));
         if (fingerprint != _mcpUiFingerprint) { _mcpUiRevision++; _mcpUiFingerprint = fingerprint; }
         Volatile.Write(ref _mcpInfo, _mcpInfo with
         {
