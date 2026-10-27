@@ -59,9 +59,18 @@ public static class SpeechGeneration
                         { Phase = "inference", CompletedUnits = completed, TotalUnits = total });
                 }
             }
-            int pending = data.Sentences.Count(s => forceSentenceId == s.Id || s.Fingerprint != Fingerprint(s, data) ||
-                s.RawAssetId is not { } id || !existing.TryGetValue(id, out MediaAsset? raw) || !File.Exists(raw.EffectiveExportPath));
-            int requestedWorkers = InferenceWorkers(data.ModelSize, data.Device);
+            bool[] needsInference = data.Sentences.Select(s => forceSentenceId == s.Id || s.Fingerprint != Fingerprint(s, data) ||
+                s.RawAssetId is not { } id || !existing.TryGetValue(id, out MediaAsset? raw) || !File.Exists(raw.EffectiveExportPath)).ToArray();
+            int pending = needsInference.Count(required => required);
+            string[] models = data.Sentences.Where((_, index) => needsInference[index]).Select(s =>
+            {
+                if (!voices.TryGetValue(s.VoiceId ?? data.Defaults.VoiceId, out SpeechVoice? voice))
+                    throw new SpeechFailure("VOICE0006", "音色不存在，请重新选择音色。");
+                return SpeechAssets.ModelPath(voice.Builtin ? "custom-" + data.ModelSize : "base-0.6b");
+            }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            int warm = data.Device == "auto" && models.Length == 1
+                ? worker.WarmAutomaticReplicas(models[0], SpeechPerformance.ThreadsPerWorker(2)) : 0;
+            int requestedWorkers = InferenceWorkers(data.ModelSize, data.Device, warm);
             int concurrentSentences = Math.Max(1, Math.Min(pending, requestedWorkers));
             // Keep auto workers on the same ORT thread configuration when a
             // later one-sentence edit reuses their already-loaded model.
@@ -221,7 +230,7 @@ public static class SpeechGeneration
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
 
-    private static int InferenceWorkers(string modelSize, string device)
+    private static int InferenceWorkers(string modelSize, string device, int warmReplicas)
     {
         if (device != "auto" && device != "cpu") return 1;
         var status = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
@@ -234,7 +243,7 @@ public static class SpeechGeneration
         ulong available = status.AvailablePhysical > gib / 2 ? status.AvailablePhysical - gib / 2 : 0;
         int limit = device == "auto" ? Math.Min(2, SpeechPerformance.SentenceWorkers(modelSize))
             : SpeechPerformance.SentenceWorkers(modelSize);
-        return (int)Math.Clamp(available / replica, 1UL, (ulong)limit);
+        return (int)Math.Clamp(available / replica + (ulong)warmReplicas, 1UL, (ulong)limit);
     }
     public static List<SpeechPart> MergeParts(IEnumerable<SpeechPart> parts)
     {

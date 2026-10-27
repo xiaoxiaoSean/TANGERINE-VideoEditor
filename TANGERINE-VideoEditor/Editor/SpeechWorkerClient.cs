@@ -77,6 +77,20 @@ public sealed class SpeechWorkerClient : IDisposable
 
     private static string DeviceModelKey(string device, string model) => device + "|" + Path.GetFullPath(model);
 
+    public int WarmAutomaticReplicas(string modelPath, int cpuThreads)
+    {
+        lock (_deviceLock)
+        {
+            if (_disposed) return 0;
+            int count = _cpu.WarmCount(modelPath, cpuThreads);
+            if (_automaticDevice is { } device && device != "cpu" &&
+                !_failedAutomaticGpu.ContainsKey(DeviceModelKey(device, modelPath)) &&
+                _gpu.TryGetValue(device, out WorkerPool? gpu))
+                count += gpu.WarmCount(modelPath, cpuThreads);
+            return count;
+        }
+    }
+
     private async Task<SpeechEvent> SendOnGpuAsync(string device, SpeechRequest request, IProgress<SpeechProgress>? progress,
         CancellationToken token, bool automatic)
     {
@@ -223,6 +237,9 @@ public sealed class SpeechWorkerClient : IDisposable
             _available = new SemaphoreSlim(capacity, capacity);
         }
 
+        public int WarmCount(string modelPath, int cpuThreads) =>
+            _slots.Count(slot => slot.IsWarmFor(modelPath, cpuThreads));
+
         public async Task<WorkerSlot> EnterAsync(CancellationToken token)
         {
             await _available.WaitAsync(token).ConfigureAwait(false);
@@ -265,6 +282,7 @@ public sealed class SpeechWorkerClient : IDisposable
         private Task<bool> _retirement = Task.FromResult(true);
         private bool _closed, _active;
         private int _cpuThreads;
+        private string? _sessionModelPath;
         private long _idleSince;
 
         public WorkerSlot() => _idleTimer = new Timer(_ => RetireWhenIdle(), null, Timeout.Infinite, Timeout.Infinite);
@@ -331,7 +349,7 @@ public sealed class SpeechWorkerClient : IDisposable
                         if (message.Type == "result")
                         {
                             token.ThrowIfCancellationRequested();
-                            state.Complete(message, () => MarkIdle(process));
+                            state.Complete(message, () => MarkIdle(process, request.ModelPath));
                             return;
                         }
                         state.Progress(message);
@@ -430,11 +448,12 @@ public sealed class SpeechWorkerClient : IDisposable
             "loading" or "loading-cpu" or "loading-gpu" => "loading",
             "prefill" or "prefill-cpu" or "prefill-gpu" => "prefill", _ => stage ?? ""
         };
-        private void MarkIdle(Process process)
+        private void MarkIdle(Process process, string modelPath)
         {
             lock (_processLock)
             {
                 if (_closed || !ReferenceEquals(_process, process)) return;
+                _sessionModelPath = modelPath;
                 _active = false;
                 _idleSince = Stopwatch.GetTimestamp();
                 _idleTimer.Change(IdleRetirement, Timeout.InfiniteTimeSpan);
@@ -477,7 +496,7 @@ public sealed class SpeechWorkerClient : IDisposable
             };
             startInfo.Environment["TANGERINE_APP_ROOT"] = AppStorage.Root;
             Process process = Process.Start(startInfo) ?? throw new SpeechFailure("VOICE0002", "无法启动语音工作进程。");
-            _process = process; _cpuThreads = cpuThreads;
+            _process = process; _cpuThreads = cpuThreads; _sessionModelPath = null;
             // A full stderr pipe blocks native ONNX Runtime logging. Drain it on
             // an independent reader; never block that reader in a Trace listener.
             new Thread(() =>
@@ -503,6 +522,13 @@ public sealed class SpeechWorkerClient : IDisposable
         public void RetireCurrent()
         {
             lock (_processLock) if (_process is { } process) Retire(process);
+        }
+        public bool IsWarmFor(string modelPath, int cpuThreads)
+        {
+            lock (_processLock)
+                return !_closed && !_active && _process is { } process && !process.HasExited &&
+                    _cpuThreads == cpuThreads &&
+                    string.Equals(_sessionModelPath, modelPath, StringComparison.OrdinalIgnoreCase);
         }
         public async Task<bool> RetireIfIdleAsync()
         {
@@ -530,7 +556,7 @@ public sealed class SpeechWorkerClient : IDisposable
             lock (_processLock)
             {
                 if (!ReferenceEquals(_process, process)) return _retirement;
-                _process = null; _active = false;
+                _process = null; _active = false; _sessionModelPath = null;
                 try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
                 catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
                 { SpeechDiagnostics.Write("worker-stop-failed pid=" + SafeId(process) + " code=" + e.GetType().Name); }
