@@ -365,9 +365,23 @@ FodyWeavers.xsd
 # Source downloads used only while curating the bundled music assets.
 tools/.builtin-music-collection/
 
+# Local WhisperX weights, isolated runtimes and verification outputs.
+whisperx_models/
+whisperx_runtime/
+.artifacts/
+
+# Local offline speech weights; keep the directory instructions in source.
+voice_models/**
+!voice_models/README.md
+
 # Private editor projects, generated media and user-created voice profiles.
 /data/
 /cache/
 **/data/voices/
 *.tvevcv
 *.tvep
+
+# Packaging output (single-file installer, publish work dir).
+/dist/
+/dist-test/
+
